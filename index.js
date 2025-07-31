@@ -132,58 +132,75 @@ if (!GEMINI_API_KEY) {
             "Đảm bảo không bỏ trống bất kỳ phần nào nếu có thể."
         ];
 
-        try {
-            // Gọi Gemini API
-            const result = await model.generateContent(promptParts);
-            const response = await result.response;
-            const textResponse = response.text();
-console.log('Phản hồi RAW từ Gemini:', textResponse); // <--- THÊM DÒNG NÀY
-            // Phân tích phản hồi văn bản từ Gemini thành các phần riêng biệt
-            // (Phần này cần điều chỉnh nếu định dạng đầu ra của Gemini thay đổi)
-            let insights = "";
-            let experiments = [];
-            let campaigns = [];
-            let emails = [];
+try {
+    const result = await model.generateContent(promptParts);
+    const response = await result.response;
+    const textResponse = response.text();
 
-            if (textResponse) {
-                const parts = textResponse.split('\n');
-                let currentSection = '';
-                for (const line of parts) {
-                    if (line.startsWith('Insight từ AI:')) {
-                        currentSection = 'insights';
-                        insights = ''; // Reset insights cho mỗi lần xử lý
-                    } else if (line.startsWith('Thử nghiệm đề xuất:')) {
-                        currentSection = 'experiments';
-                    } else if (line.startsWith('Chiến dịch đề xuất:')) {
-                        currentSection = 'campaigns';
-                    } else if (line.startsWith('Email Marketing đề xuất:')) {
-                        currentSection = 'emails';
-                    } else if (line.startsWith('- ')) { // Xử lý các mục danh sách
-                        const content = line.substring(2).trim();
-                        if (currentSection === 'experiments') experiments.push(content);
-                        else if (currentSection === 'campaigns') campaigns.push(content);
-                        else if (currentSection === 'emails') emails.push(content);
-                    } else if (currentSection === 'insights' && line.trim() !== '') {
-                        insights += line.trim() + '\n'; // Thêm dòng vào insights
-                    }
-                }
-                insights = insights.trim(); // Loại bỏ khoảng trắng thừa cuối cùng
-            }
-            
-            // Trả về kết quả cho frontend
-            res.json({
-                insights: insights,
-                experiments: experiments,
-                campaigns: campaigns,
-                emails: emails
-            });
+    console.log('Phản hồi RAW từ Gemini:', textResponse); // Vẫn giữ dòng này để debug
 
-        } catch (error) {
-            // Xử lý lỗi nếu có vấn đề khi gọi Gemini API
-            console.error('Lỗi khi gọi Gemini API:', error);
-            res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
+    let insights = "";
+    let experiments = [];
+    let campaigns = [];
+    let emails = [];
+
+    // --- LOGIC PARSING CẢI TIẾN ---
+    if (textResponse) {
+        // Regex để tìm các phần tiêu đề và nội dung của chúng
+        const insightMatch = textResponse.match(/Insight từ AI:\n([\s\S]*?)(?=\nThử nghiệm đề xuất:|\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
+        const experimentsMatch = textResponse.match(/Thử nghiệm đề xuất:\n([\s\S]*?)(?=\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
+        const campaignsMatch = textResponse.match(/Chiến dịch đề xuất:\n([\s\S]*?)(?=\nEmail Marketing đề xuất:|$)/);
+        const emailsMatch = textResponse.match(/Email Marketing đề xuất:\n([\s\S]*?)$/);
+
+        if (insightMatch && insightMatch[1]) {
+            insights = insightMatch[1].trim();
+            // Xóa các dấu * đầu dòng nếu có
+            insights = insights.replace(/^\*\s*/gm, ''); 
         }
+
+        if (experimentsMatch && experimentsMatch[1]) {
+            experiments = experimentsMatch[1].split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('*') || line.startsWith('- ')) // Lọc dòng bắt đầu bằng * hoặc -
+                .map(line => line.substring(line.indexOf(' ') + 1).trim()); // Loại bỏ * hoặc - và khoảng trắng
+        }
+
+        if (campaignsMatch && campaignsMatch[1]) {
+            campaigns = campaignsMatch[1].split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('*') || line.startsWith('- '))
+                .map(line => line.substring(line.indexOf(' ') + 1).trim());
+            
+            // Đối với campaigns, bạn muốn nó là object, không phải chuỗi.
+            // Điều này phức tạp hơn vì bạn có cấu trúc lồng nhau trong phản hồi.
+            // Nếu Gemini không trả về JSON, cách đơn giản nhất là giữ nó là chuỗi,
+            // hoặc phải viết parser phức tạp để chuyển đổi chuỗi sang object.
+            // Hiện tại tôi sẽ giữ nó là mảng chuỗi đơn giản như các phần khác.
+            // Hoặc bạn phải yêu cầu Gemini trả về JSON để parse dễ hơn.
+            // For now, let's keep it as string arrays for simplicity and to unblock you.
+            // Example: campaigns: [ "Chiến dịch A: 'Khám Phá Ưu Đãi Bí Mật'...", "Chiến dịch B: 'Tri Ân Khách Hàng Thân Thiết'..." ]
+        }
+
+        if (emailsMatch && emailsMatch[1]) {
+            emails = emailsMatch[1].split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('*') || line.startsWith('- '))
+                .map(line => line.substring(line.indexOf(' ') + 1).trim());
+        }
+    }
+    // --- KẾT THÚC LOGIC PARSING CẢI TIẾN ---
+    
+    // Trả về kết quả cho frontend
+    res.json({
+        insights: insights,
+        experiments: experiments,
+        campaigns: campaigns, // Sẽ là mảng chuỗi
+        emails: emails       // Sẽ là mảng chuỗi
     });
+
+} catch (error) {
+    console.error('Lỗi khi gọi Gemini API:', error);
+    res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
 }
 
 
