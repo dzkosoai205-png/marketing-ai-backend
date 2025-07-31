@@ -83,7 +83,7 @@ if (!GEMINI_API_KEY) {
     // Đảm bảo dữ liệu này có giá trị (không rỗng)
     ...(couponUsageData && couponUsageData.length > 0 ? 
         couponUsageData.map(item => `${item.name} | ${item['Số lượt sử dụng']}`) : 
-        ["Không có dữ liệu sử dụng mã giảm giá.")
+        ["Không có dữ liệu sử dụng mã giảm giá."]
     ),
 
     "\n--- DOANH THU THEO MÃ GIẢM GIÁ (Revenue by Coupon) ---",
