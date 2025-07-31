@@ -1,5 +1,5 @@
 // ==========================================================
-// File: index.js (Phiên bản hoàn chỉnh, đã sửa lỗi Parsing và cú pháp)
+// File: index.js (Phiên bản hoàn chỉnh cuối cùng, đã sửa lỗi Parsing và cú pháp, có Debug Logs)
 // ==========================================================
 
 // Tải biến môi trường từ file .env (chỉ dùng cục bộ)
@@ -142,50 +142,69 @@ if (!GEMINI_API_KEY) {
             const response = await result.response;
             const textResponse = response.text();
 
-            console.log('Phản hồi RAW từ Gemini:', textResponse); // GIỮ DÒNG NÀY ĐỂ DEBUG
+            // LOG NỘI DUNG RAW TỪ GEMINI (RẤT QUAN TRỌNG ĐỂ DEBUG)
+            console.log('Phản hồi RAW từ Gemini:', textResponse); 
 
             let insights = "";
             let experiments = [];
             let campaigns = [];
             let emails = [];
 
-            // --- LOGIC PARSING CẢI TIẾN để xử lý định dạng từ Gemini ---
+            // --- LOGIC PARSING CẢI TIẾN và MẠNH MẼ HƠN ---
+            // Chia toàn bộ phản hồi thành các phần dựa trên các tiêu đề chính
             if (textResponse) {
-                // Regex để tìm các phần tiêu đề và nội dung của chúng
-                const insightMatch = textResponse.match(/Insight từ AI:\n([\s\S]*?)(?=\nThử nghiệm đề xuất:|\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
-                const experimentsMatch = textResponse.match(/Thử nghiệm đề xuất:\n([\s\S]*?)(?=\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
-                const campaignsMatch = textResponse.match(/Chiến dịch đề xuất:\n([\s\S]*?)(?=\nEmail Marketing đề xuất:|$)/);
-                const emailsMatch = textResponse.match(/Email Marketing đề xuất:\n([\s\S]*)$/); // Regex này lấy đến cuối chuỗi
+                const sections = textResponse.split(/(Insight từ AI:|Thử nghiệm đề xuất:|Chiến dịch đề xuất:|Email Marketing đề xuất:)/);
+                
+                // Duyệt qua các phần đã chia
+                for (let i = 0; i < sections.length; i++) {
+                    const sectionHeader = sections[i].trim();
+                    const sectionContent = sections[i + 1] ? sections[i + 1].trim() : '';
 
-                if (insightMatch && insightMatch[1]) {
-                    insights = insightMatch[1].trim();
-                    // Xóa các dấu * hoặc số thứ tự đầu dòng nếu có
-                    insights = insights.replace(/^(\*|\d+\.\s*)/gm, ''); 
-                }
+                    if (sectionHeader === 'Insight từ AI:') {
+                        insights = sectionContent.split('\n')
+                            .filter(line => line.trim() !== '' && !line.includes('**Lưu ý:**')) // Lọc bỏ dòng trống và dòng lưu ý
+                            .map(line => line.replace(/^(\*|\d+\.\s*|Insight \d+\:\s*)/gm, '').trim()) // Xóa * hoặc số thứ tự/tiêu đề con đầu dòng
+                            .join('\n') // Ghép lại thành một chuỗi insight
+                            .trim();
+                        // Xóa "Tuyệt vời! Dưới đây là phân tích chi tiết..." nếu nó xuất hiện ở đầu phản hồi
+                        if (insights.startsWith('Tuyệt vời!')) {
+                            insights = insights.substring(insights.indexOf('\n') + 1).trim();
+                        }
+                        if (insights.startsWith('Dưới đây là phân tích chi tiết,')) { // Trường hợp khác
+                            insights = insights.substring(insights.indexOf('\n') + 1).trim();
+                        }
 
-                if (experimentsMatch && experimentsMatch[1]) {
-                    experiments = experimentsMatch[1].split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**') ) // Lọc dòng bắt đầu bằng *, -, **
-                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim()); // Loại bỏ *, -, ** và khoảng trắng đầu dòng
-                }
+                    } else if (sectionHeader === 'Thử nghiệm đề xuất:') {
+                        experiments = sectionContent.split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**') ) // Lọc dòng bắt đầu bằng *, -, **
+                            .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim()); // Loại bỏ *, -, ** và khoảng trắng đầu dòng
 
-                if (campaignsMatch && campaignsMatch[1]) {
-                    campaigns = campaignsMatch[1].split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
-                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
-                }
+                    } else if (sectionHeader === 'Chiến dịch đề xuất:') {
+                        campaigns = sectionContent.split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
+                            .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
 
-                if (emailsMatch && emailsMatch[1]) {
-                    emails = emailsMatch[1].split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
-                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
+                    } else if (sectionHeader === 'Email Marketing đề xuất:') {
+                        emails = sectionContent.split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
+                            .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
+                    }
+                    i++; // Tăng i để nhảy qua phần nội dung đã xử lý
                 }
             }
             // --- KẾT THÚC LOGIC PARSING CẢI TIẾN ---
             
+            // LOG CÁC BIẾN ĐÃ PARSE TRƯỚC KHI GỬI ĐẾN FRONTEND (RẤT QUAN TRỌNG ĐỂ DEBUG)
+            console.log('Parsed results before sending to frontend:', {
+                insights: insights,
+                experiments: experiments,
+                campaigns: campaigns, 
+                emails: emails       
+            });
+
             // Trả về kết quả cho frontend
             res.json({
                 insights: insights,
