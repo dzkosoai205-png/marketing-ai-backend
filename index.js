@@ -1,5 +1,5 @@
 // ==========================================================
-// File: index.js (Phiên bản ổn định cho Render)
+// File: index.js (Sửa lỗi Deploy trên Render)
 // ==========================================================
 
 require('dotenv').config();
@@ -13,7 +13,7 @@ const orderRoutes = require('./routes/order.routes');
 const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
-const cronRoutes = require('./routes/cron.routes'); // Nạp route cho cron job
+// const cronRoutes = require('./routes/cron.routes'); // <-- Tạm thời vô hiệu hóa dòng này
 
 // Khởi tạo ứng dụng Express
 const app = express();
@@ -29,7 +29,7 @@ app.use('/api', orderRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', webhookRoutes);
-app.use('/api', cronRoutes); // Sử dụng route cho cron job
+// app.use('/api', cronRoutes); // <-- Tạm thời vô hiệu hóa dòng này
 
 // --- KẾT NỐI DATABASE VÀ KHỞI ĐỘNG SERVER ---
 const MONGO_URI = process.env.MONGO_URI;
