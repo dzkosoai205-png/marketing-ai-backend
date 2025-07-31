@@ -160,6 +160,7 @@ if (!GEMINI_API_KEY) {
             const result = await model.generateContent(promptParts);
             const response = await result.response;
             const textResponse = response.text();
+            console.log('Phản hồi RAW từ Gemini:', textResponse); // <--- THÊM DÒNG NÀY
 
             // Phân tích phản hồi văn bản từ Gemini thành các phần riêng biệt
             // (Phần này cần điều chỉnh nếu định dạng đầu ra của Gemini thay đổi)
