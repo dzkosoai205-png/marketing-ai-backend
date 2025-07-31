@@ -1,12 +1,12 @@
 // ==========================================================
-// File: index.js (Phiên bản Hoàn Chỉnh Cuối Cùng, Đã Sửa Lỗi Cú Pháp)
+// File: index.js (Phiên bản Hoàn Chỉnh Tuyệt Đối, Đã Sửa Lỗi Cú Pháp Cuối Cùng)
 // Đã bao gồm:
 // - Cấu hình Gemini API (gemini-2.0-flash)
 // - Tăng giới hạn kích thước request body (50mb)
 // - Logic parsing phản hồi từ Gemini mạnh mẽ và linh hoạt
 // - Debug logs để kiểm tra phản hồi RAW và kết quả parsed
 // - Sửa lỗi phạm vi biến (ReferenceError)
-// - SỬA LỖI CÚ PHÁP: Unexpected token ')'
+// - SỬA LỖI CÚ PHÁP: Unexpected token ')' Lần cuối
 // ==========================================================
 
 // Tải biến môi trường từ file .env (chỉ dùng cục bộ)
@@ -163,7 +163,7 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
             const rawSections = textResponse.split(sectionsRegex).map(s => s.trim()).filter(s => s !== '');
 
             let currentSectionKey = '';
-            for (const part of rawSections) { // Sửa lỗi ở đây, không cần i và nhảy qua part
+            for (const part of rawSections) { 
                 if (sectionHeaders.includes(part)) {
                     currentSectionKey = part;
                 } else {
@@ -198,10 +198,9 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
                                 .map(line => line.replace(/^(\*+\s*|\-\s*|\d+\.\s*)/, '').trim());
                             break;
                     }
-                    // currentSectionKey = ''; // BỎ DÒNG NÀY, để nó xử lý các dòng tiếp theo nếu chúng cùng một section
                 }
             }
-        } // <-- DÒNG NÀY ĐÃ ĐƯỢC XÓA! Đây là dấu ')' bị thừa!
+        }
         
         console.log('Parsed results before sending to frontend:', {
             insights: insights,
@@ -221,7 +220,7 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
         console.error('Lỗi khi gọi Gemini API:', error);
         res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
     }
-);
+}); // <-- DÒNG NÀY ĐÃ ĐƯỢC KẾT THÚC CHÍNH XÁC. Dấu ')' bị thừa đã được xóa.
 
 
 // --- Sử dụng các route hiện có của ứng dụng ---
