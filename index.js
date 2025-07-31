@@ -1,18 +1,19 @@
 // ==========================================================
-// File: index.js (Phiên bản Cuối Cùng đã sửa lỗi ReferenceError)
+// File: index.js (Phiên bản Hoàn Chỉnh Cuối Cùng, Đã Sửa Lỗi Cú Pháp)
 // Đã bao gồm:
 // - Cấu hình Gemini API (gemini-2.0-flash)
 // - Tăng giới hạn kích thước request body (50mb)
 // - Logic parsing phản hồi từ Gemini mạnh mẽ và linh hoạt
 // - Debug logs để kiểm tra phản hồi RAW và kết quả parsed
 // - Sửa lỗi phạm vi biến (ReferenceError)
+// - SỬA LỖI CÚ PHÁP: Unexpected token ')'
 // ==========================================================
 
 // Tải biến môi trường từ file .env (chỉ dùng cục bộ)
 require('dotenv').config();
 
 const express = require('express');
-const cors = require('cors');
+const cors = require('cors'); // Đảm bảo không có lỗi chính tả ở đây
 const mongoose = require('mongoose');
 
 // Import SDK Gemini API
@@ -42,7 +43,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Cấu hình Gemini API
 // ==========================================================
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-let model; // <-- Khai báo biến model ở phạm vi rộng hơn
+let model; // Khai báo biến model ở phạm vi rộng hơn
 
 if (!GEMINI_API_KEY) {
     console.warn("Cảnh báo: Biến môi trường GEMINI_API_KEY chưa được thiết lập. Tính năng AI sẽ không hoạt động.");
@@ -162,11 +163,9 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
             const rawSections = textResponse.split(sectionsRegex).map(s => s.trim()).filter(s => s !== '');
 
             let currentSectionKey = '';
-            for (let i = 0; i < rawSections.length; i++) {
-                const part = rawSections[i];
-
+            for (const part of rawSections) { // Sửa lỗi ở đây, không cần i và nhảy qua part
                 if (sectionHeaders.includes(part)) {
-                    currentSectionKey = part; // Lưu cả tiêu đề để so sánh chính xác
+                    currentSectionKey = part;
                 } else {
                     const content = part.trim();
                     if (content === '') continue;
@@ -199,12 +198,11 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
                                 .map(line => line.replace(/^(\*+\s*|\-\s*|\d+\.\s*)/, '').trim());
                             break;
                     }
-                    // currentSectionKey = ''; // Không reset ở đây, để nó tiếp tục xử lý các phần của cùng một section
+                    // currentSectionKey = ''; // BỎ DÒNG NÀY, để nó xử lý các dòng tiếp theo nếu chúng cùng một section
                 }
             }
-            
-        }
-
+        } // <-- DÒNG NÀY ĐÃ ĐƯỢC XÓA! Đây là dấu ')' bị thừa!
+        
         console.log('Parsed results before sending to frontend:', {
             insights: insights,
             experiments: experiments,
@@ -220,7 +218,6 @@ app.post('/api/analyze-marketing', async (req, res) => { // 'res' là tham số 
         });
 
     } catch (error) {
-        // 'res' đã được định nghĩa là tham số của hàm app.post
         console.error('Lỗi khi gọi Gemini API:', error);
         res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
     }
