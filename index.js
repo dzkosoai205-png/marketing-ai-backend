@@ -69,53 +69,99 @@ if (!GEMINI_API_KEY) {
         // Xây dựng prompt (lời nhắc) chi tiết cho Gemini
         // Prompt này hướng dẫn AI phân tích và định dạng kết quả
         const promptParts = [
-            "Bạn là một chuyên gia phân tích marketing và chiến lược gia.",
-            "Hãy phân tích dữ liệu marketing sau đây và đưa ra các insight sâu sắc, đề xuất các thử nghiệm marketing A/B mới, các ý tưởng chiến dịch marketing, và các chủ đề/nội dung email marketing hấp dẫn.",
-            "Dữ liệu được cung cấp là:",
-            `- Tổng doanh thu từ đơn hàng có mã giảm giá: ${totalRevenue} VND`,
-            `- Tổng số đơn hàng có mã giảm giá: ${totalOrdersWithDiscount}`,
-            `- Tổng tiền đã giảm giá: ${totalDiscount} VND`,
-            "\nChi tiết lượt sử dụng mã giảm giá:",
-            "Mã | Số lượt sử dụng",
-            "---|----------------",
-            // Thêm dữ liệu chi tiết từ các mảng
-            ...couponUsageData.map(item => `${item.name} | ${item['Số lượt sử dụng']}`),
-            "\nDoanh thu theo mã giảm giá:",
-            "Mã | Doanh thu",
-            "---|-----------",
-            ...revenueByCouponData.map(item => `${item.name} | ${item.value}`),
-            "\nKhách hàng thân thiết (top 5 theo số lượt dùng mã):",
-            "Khách hàng | Lượt dùng mã",
-            "------------|-------------",
-            ...topCustomers.map(item => `${item.name} | ${item.usageCount}`),
-            "\n",
-            // Bạn có thể thêm dữ liệu thô chi tiết hơn nếu cần cho Gemini phân tích sâu hơn
-            // Ví dụ: "\nThông tin chi tiết tất cả đơn hàng:\n" + JSON.stringify(orders, null, 2),
-            //        "\nThông tin chi tiết tất cả khách hàng:\n" + JSON.stringify(customers, null, 2),
-            //        "\nThông tin chi tiết tất cả mã giảm giá:\n" + JSON.stringify(coupons, null, 2),
-            "\n",
-            "Hãy trình bày kết quả theo định dạng sau:",
-            "Insight từ AI:",
-            "<Các insight tổng quan về hiệu suất mã giảm giá, xu hướng khách hàng, v.v. (tối đa 3-5 câu)>",
-            "\nThử nghiệm đề xuất (ví dụ: A/B testing):",
-            "- <Thử nghiệm 1 (Mô tả ngắn gọn)>",
-            "- <Thử nghiệm 2 (Mô tả ngắn gọn)>",
-            "\nChiến dịch đề xuất:",
-            "- <Chiến dịch 1 (Mục tiêu, Đối tượng, Ý tưởng chính)>",
-            "- <Chiến dịch 2 (Mục tiêu, Đối tượng, Ý tưởng chính)>",
-            "\nEmail Marketing đề xuất (chủ đề và nội dung chính):",
-            "- <Chủ đề Email 1: Nội dung chính>",
-            "- <Chủ đề Email 2: Nội dung chính>",
-            "\n",
-            "Hãy đảm bảo phân tích của bạn thực tế và dựa trên dữ liệu đã cho. Nếu có bất kỳ điều gì không rõ ràng, hãy đưa ra giả định hợp lý hoặc nêu rõ hạn chế của dữ liệu."
-        ];
+    "Bạn là một chuyên gia phân tích dữ liệu marketing hàng đầu, có khả năng nhìn nhận xu hướng và đề xuất chiến lược hiệu quả. Bạn cần đưa ra các insight sâu sắc, đề xuất các thử nghiệm A/B marketing cụ thể, các ý tưởng chiến dịch marketing sáng tạo, và các chủ đề/nội dung email marketing hấp dẫn.",
+    "Phân tích dựa trên các dữ liệu sau đây từ một doanh nghiệp thương mại điện tử:",
+    "--- DỮ LIỆU TỔNG QUAN ---",
+    `- Tổng doanh thu từ đơn hàng có mã giảm giá: ${totalRevenue} VND.`,
+    `- Tổng số đơn hàng có mã giảm giá: ${totalOrdersWithDiscount} đơn.`,
+    `- Tổng tiền đã giảm giá cho khách hàng: ${totalDiscount} VND.`,
+
+    "\n--- CHI TIẾT SỬ DỤNG MÃ GIẢM GIÁ (Top Coupon Codes) ---",
+    "Đây là danh sách các mã giảm giá và số lượt sử dụng của chúng:",
+    "Mã | Số lượt sử dụng",
+    "---|----------------",
+    // Đảm bảo dữ liệu này có giá trị (không rỗng)
+    ...(couponUsageData && couponUsageData.length > 0 ? 
+        couponUsageData.map(item => `${item.name} | ${item['Số lượt sử dụng']}`) : 
+        ["Không có dữ liệu sử dụng mã giảm giá.")
+    ),
+
+    "\n--- DOANH THU THEO MÃ GIẢM GIÁ (Revenue by Coupon) ---",
+    "Đây là doanh thu được tạo ra bởi từng mã giảm giá:",
+    "Mã | Doanh thu",
+    "---|-----------",
+    // Đảm bảo dữ liệu này có giá trị
+    ...(revenueByCouponData && revenueByCouponData.length > 0 ? 
+        revenueByCouponData.map(item => `${item.name} | ${item.value}`) : 
+        ["Không có dữ liệu doanh thu theo mã giảm giá.")
+    ),
+
+    "\n--- KHÁCH HÀNG THÂN THIẾT (Top 5 Customers by Coupon Usage) ---",
+    "Đây là 5 khách hàng hàng đầu theo số lượt sử dụng mã giảm giá:",
+    "Khách hàng | Lượt dùng mã",
+    "------------|-------------",
+    // Đảm bảo dữ liệu này có giá trị
+    ...(topCustomers && topCustomers.length > 0 ? 
+        topCustomers.map(item => `${item.name} | ${item.usageCount}`) : 
+        ["Không có dữ liệu khách hàng thân thiết.")
+    ),
+
+    // =========================================================================
+    // THÊM: Có thể thêm dữ liệu thô chi tiết hơn nếu cần để AI phân tích sâu
+    // Tuy nhiên, hãy cẩn thận với giới hạn token của gói miễn phí và kích thước body
+    // =========================================================================
+    // if (orders && orders.length > 0) {
+    //     promptParts.push("\n--- CHI TIẾT TẤT CẢ ĐƠN HÀNG (đã giảm giá và thanh toán) ---");
+    //     promptParts.push("Dữ liệu này bao gồm ID đơn hàng, tổng giá trị, tổng chiết khấu, mã giảm giá và thông tin khách hàng:");
+    //     promptParts.push(JSON.stringify(orders, null, 2));
+    // }
+    // if (customers && customers.length > 0) {
+    //     promptParts.push("\n--- CHI TIẾT TẤT CẢ KHÁCH HÀNG ---");
+    //     promptParts.push("Dữ liệu này bao gồm ID khách hàng, tên và email:");
+    //     promptParts.push(JSON.stringify(customers, null, 2));
+    // }
+    // if (coupons && coupons.length > 0) {
+    //     promptParts.push("\n--- CHI TIẾT TẤT CẢ MÃ GIẢM GIÁ ---");
+    //     promptParts.push("Dữ liệu này bao gồm mã, giá trị và loại chiết khấu:");
+    //     promptParts.push(JSON.stringify(coupons, null, 2));
+    // }
+
+    "\n--- YÊU CẦU PHÂN TÍCH VÀ ĐỀ XUẤT ---",
+    "Dựa trên các dữ liệu trên:",
+    "1. Insight từ AI: Đưa ra ít nhất 3-5 insight quan trọng về hiệu quả của các chiến dịch mã giảm giá, hành vi của khách hàng, và các xu hướng đáng chú ý. Hãy tập trung vào những gì dữ liệu ĐANG NÓI và ĐỀ XUẤT tại sao. Sử dụng ngôn ngữ chuyên nghiệp và dễ hiểu. Mỗi insight là một đoạn văn ngắn.",
+    "2. Thử nghiệm đề xuất (A/B testing): Đề xuất ít nhất 2 ý tưởng thử nghiệm A/B cụ thể để tối ưu hóa việc sử dụng mã giảm giá hoặc thu hút khách hàng. Mỗi thử nghiệm nên có mục tiêu rõ ràng và các yếu tố cần thử nghiệm.",
+    "3. Chiến dịch đề xuất: Đề xuất ít nhất 2 ý tưởng chiến dịch marketing mới, có thể liên quan đến việc sử dụng mã giảm giá hoặc dựa trên insight về khách hàng. Mỗi chiến dịch cần nêu rõ mục tiêu, đối tượng và ý tưởng cốt lõi.",
+    "4. Email Marketing đề xuất: Đề xuất ít nhất 2 chủ đề email marketing hấp dẫn và nội dung chính cho mỗi email, dựa trên các insight hoặc đề xuất chiến dịch.",
+    "\n",
+    "Hãy trình bày kết quả theo định dạng CÓ CẤU TRÚC sau:",
+    "Insight từ AI:",
+    "<Insight 1.>",
+    "<Insight 2.>",
+    "<Insight 3.>",
+    // ...
+    "\nThử nghiệm đề xuất:",
+    "- <Thử nghiệm A>",
+    "- <Thử nghiệm B>",
+    // ...
+    "\nChiến dịch đề xuất:",
+    "- <Chiến dịch A>",
+    "- <Chiến dịch B>",
+    // ...
+    "\nEmail Marketing đề xuất:",
+    "- <Chủ đề Email A: Nội dung chính>",
+    "- <Chủ đề Email B: Nội dung chính>",
+    // ...
+    "\n",
+    "Nếu dữ liệu quá ít hoặc không có để tạo insight cụ thể, hãy nêu rõ điều đó và đưa ra các đề xuất chung chung hơn hoặc các câu hỏi cần đặt ra để thu thập thêm dữ liệu.",
+    "Đảm bảo không bỏ trống bất kỳ phần nào nếu có thể."
+];
 
         try {
             // Gọi Gemini API
             const result = await model.generateContent(promptParts);
             const response = await result.response;
             const textResponse = response.text();
-
+console.log('Phản hồi RAW từ Gemini:', textResponse); // <--- THÊM DÒNG NÀY
             // Phân tích phản hồi văn bản từ Gemini thành các phần riêng biệt
             // (Phần này cần điều chỉnh nếu định dạng đầu ra của Gemini thay đổi)
             let insights = "";
