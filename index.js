@@ -1,15 +1,15 @@
 // ==========================================================
-// File: index.js (Hoàn chỉnh với Gemini API và tăng giới hạn Body)
+// File: index.js (Phiên bản hoàn chỉnh, đã sửa lỗi Parsing và cú pháp)
 // ==========================================================
 
-require('dotenv').config(); // Tải biến môi trường từ file .env
+// Tải biến môi trường từ file .env (chỉ dùng cục bộ)
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-// ==========================================================
-// THÊM: Import SDK Gemini API
-// ==========================================================
+// Import SDK Gemini API
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Nạp các file route của ứng dụng
@@ -18,7 +18,7 @@ const orderRoutes = require('./routes/order.routes');
 const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
-// const cronRoutes = require('./routes/cron.routes'); // <-- Tạm thời vô hiệu hóa dòng này (theo file gốc của bạn)
+// const cronRoutes = require('./routes/cron.routes'); // <-- Giữ nguyên trạng thái vô hiệu hóa
 
 // Khởi tạo ứng dụng Express
 const app = express();
@@ -26,14 +26,14 @@ const PORT = process.env.PORT || 3001; // Sử dụng cổng 3001 hoặc biến 
 
 // --- Middleware ---
 app.use(cors()); // Cho phép CORS cho tất cả các request để frontend có thể truy cập
-// THAY ĐỔI: Tăng giới hạn kích thước request body JSON
+// Tăng giới hạn kích thước request body JSON để tránh lỗi 413 Payload Too Large
 app.use(express.json({ limit: '50mb' })); 
-// THÊM: Tăng giới hạn cho dữ liệu URL-encoded (ví dụ: từ form submissions)
+// Tăng giới hạn cho dữ liệu URL-encoded (ví dụ: từ form submissions)
 app.use(express.urlencoded({ limit: '50mb', extended: true })); 
 
 
 // ==========================================================
-// THÊM: Cấu hình Gemini API và Route mới cho AI Analysis
+// Cấu hình Gemini API và Route mới cho AI Analysis
 // ==========================================================
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -44,7 +44,8 @@ if (!GEMINI_API_KEY) {
 } else {
     // Khởi tạo Gemini API nếu có KEY
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Sử dụng mô hình gemini-pro cho văn bản
+    // Sử dụng tên mô hình chính xác mà bạn được cấp quyền: gemini-2.0-flash
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
 
     // Định nghĩa endpoint POST mới cho phân tích marketing AI
     app.post('/api/analyze-marketing', async (req, res) => {
@@ -56,9 +57,9 @@ if (!GEMINI_API_KEY) {
             couponUsageData, 
             revenueByCouponData, 
             topCustomers,
-            orders, // Dữ liệu order chi tiết
-            customers, // Dữ liệu customer chi tiết
-            coupons // Dữ liệu coupon chi tiết
+            orders, 
+            customers, 
+            coupons 
         } = req.body;
 
         // Kiểm tra xem có dữ liệu nào được gửi không
@@ -68,8 +69,8 @@ if (!GEMINI_API_KEY) {
 
         // Xây dựng prompt (lời nhắc) chi tiết cho Gemini
         // Prompt này hướng dẫn AI phân tích và định dạng kết quả
-       const promptParts = [
-            "Bạn là một chuyên gia phân tích dữ liệu marketing hàng đầu, có khả năng nhìn nhận xu hướng và đề xuất chiến lược hiệu quả. Bạn cần đưa ra các insight sâu sắc, đề xuất các thử nghiệm A/B marketing cụ thể, các ý tưởng chiến dịch marketing sáng tạo, và các chủ đề/nội dung email marketing hấp dẫn.",
+        const promptParts = [
+            "Bạn là một chuyên gia phân tích dữ liệu marketing hàng đầu, có khả năng nhìn nhận xu hướng và đề xuất chiến lược hiệu quả. Bạn cần đưa ra các insight sâu sắc, đề xuất các thử nghiệm marketing A/B cụ thể, các ý tưởng chiến dịch marketing sáng tạo, và các chủ đề/nội dung email marketing hấp dẫn.",
             "Phân tích dựa trên các dữ liệu sau đây từ một doanh nghiệp thương mại điện tử:",
             "--- DỮ LIỆU TỔNG QUAN ---",
             `- Tổng doanh thu từ đơn hàng có mã giảm giá: ${totalRevenue} VND.`,
@@ -80,27 +81,30 @@ if (!GEMINI_API_KEY) {
             "Đây là danh sách các mã giảm giá và số lượt sử dụng của chúng:",
             "Mã | Số lượt sử dụng",
             "---|----------------",
+            // Đã sửa lỗi cú pháp tại đây:
             ...(couponUsageData && couponUsageData.length > 0 ? 
                 couponUsageData.map(item => `${item.name} | ${item['Số lượt sử dụng']}`) : 
-                ["Không có dữ liệu sử dụng mã giảm giá."] // <-- Đã sửa lỗi cú pháp ở đây
+                ["Không có dữ liệu sử dụng mã giảm giá."] 
             ),
 
             "\n--- DOANH THU THEO MÃ GIẢM GIÁ (Revenue by Coupon) ---",
             "Đây là doanh thu được tạo ra bởi từng mã giảm giá:",
             "Mã | Doanh thu",
             "---|-----------",
+            // Đã sửa lỗi cú pháp tại đây:
             ...(revenueByCouponData && revenueByCouponData.length > 0 ? 
                 revenueByCouponData.map(item => `${item.name} | ${item.value}`) : 
-                ["Không có dữ liệu doanh thu theo mã giảm giá."] // <-- Đã sửa lỗi cú pháp ở đây
+                ["Không có dữ liệu doanh thu theo mã giảm giá."] 
             ),
 
             "\n--- KHÁCH HÀNG THÂN THIẾT (Top 5 Customers by Coupon Usage) ---",
             "Đây là 5 khách hàng hàng đầu theo số lượt sử dụng mã giảm giá:",
             "Khách hàng | Lượt dùng mã",
             "------------|-------------",
+            // Đã sửa lỗi cú pháp tại đây:
             ...(topCustomers && topCustomers.length > 0 ? 
                 topCustomers.map(item => `${item.name} | ${item.usageCount}`) : 
-                ["Không có dữ liệu khách hàng thân thiết."] // <-- Đã sửa lỗi cú pháp ở đây
+                ["Không có dữ liệu khách hàng thân thiết."] 
             ),
 
             "\n--- YÊU CẦU PHÂN TÍCH VÀ ĐỀ XUẤT ---",
@@ -132,75 +136,70 @@ if (!GEMINI_API_KEY) {
             "Đảm bảo không bỏ trống bất kỳ phần nào nếu có thể."
         ];
 
-try {
-    const result = await model.generateContent(promptParts);
-    const response = await result.response;
-    const textResponse = response.text();
+        try {
+            // Gọi Gemini API
+            const result = await model.generateContent(promptParts);
+            const response = await result.response;
+            const textResponse = response.text();
 
-    console.log('Phản hồi RAW từ Gemini:', textResponse); // Vẫn giữ dòng này để debug
+            console.log('Phản hồi RAW từ Gemini:', textResponse); // GIỮ DÒNG NÀY ĐỂ DEBUG
 
-    let insights = "";
-    let experiments = [];
-    let campaigns = [];
-    let emails = [];
+            let insights = "";
+            let experiments = [];
+            let campaigns = [];
+            let emails = [];
 
-    // --- LOGIC PARSING CẢI TIẾN ---
-    if (textResponse) {
-        // Regex để tìm các phần tiêu đề và nội dung của chúng
-        const insightMatch = textResponse.match(/Insight từ AI:\n([\s\S]*?)(?=\nThử nghiệm đề xuất:|\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
-        const experimentsMatch = textResponse.match(/Thử nghiệm đề xuất:\n([\s\S]*?)(?=\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
-        const campaignsMatch = textResponse.match(/Chiến dịch đề xuất:\n([\s\S]*?)(?=\nEmail Marketing đề xuất:|$)/);
-        const emailsMatch = textResponse.match(/Email Marketing đề xuất:\n([\s\S]*?)$/);
+            // --- LOGIC PARSING CẢI TIẾN để xử lý định dạng từ Gemini ---
+            if (textResponse) {
+                // Regex để tìm các phần tiêu đề và nội dung của chúng
+                const insightMatch = textResponse.match(/Insight từ AI:\n([\s\S]*?)(?=\nThử nghiệm đề xuất:|\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
+                const experimentsMatch = textResponse.match(/Thử nghiệm đề xuất:\n([\s\S]*?)(?=\nChiến dịch đề xuất:|\nEmail Marketing đề xuất:|$)/);
+                const campaignsMatch = textResponse.match(/Chiến dịch đề xuất:\n([\s\S]*?)(?=\nEmail Marketing đề xuất:|$)/);
+                const emailsMatch = textResponse.match(/Email Marketing đề xuất:\n([\s\S]*)$/); // Regex này lấy đến cuối chuỗi
 
-        if (insightMatch && insightMatch[1]) {
-            insights = insightMatch[1].trim();
-            // Xóa các dấu * đầu dòng nếu có
-            insights = insights.replace(/^\*\s*/gm, ''); 
-        }
+                if (insightMatch && insightMatch[1]) {
+                    insights = insightMatch[1].trim();
+                    // Xóa các dấu * hoặc số thứ tự đầu dòng nếu có
+                    insights = insights.replace(/^(\*|\d+\.\s*)/gm, ''); 
+                }
 
-        if (experimentsMatch && experimentsMatch[1]) {
-            experiments = experimentsMatch[1].split('\n')
-                .map(line => line.trim())
-                .filter(line => line.startsWith('*') || line.startsWith('- ')) // Lọc dòng bắt đầu bằng * hoặc -
-                .map(line => line.substring(line.indexOf(' ') + 1).trim()); // Loại bỏ * hoặc - và khoảng trắng
-        }
+                if (experimentsMatch && experimentsMatch[1]) {
+                    experiments = experimentsMatch[1].split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**') ) // Lọc dòng bắt đầu bằng *, -, **
+                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim()); // Loại bỏ *, -, ** và khoảng trắng đầu dòng
+                }
 
-        if (campaignsMatch && campaignsMatch[1]) {
-            campaigns = campaignsMatch[1].split('\n')
-                .map(line => line.trim())
-                .filter(line => line.startsWith('*') || line.startsWith('- '))
-                .map(line => line.substring(line.indexOf(' ') + 1).trim());
+                if (campaignsMatch && campaignsMatch[1]) {
+                    campaigns = campaignsMatch[1].split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
+                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
+                }
+
+                if (emailsMatch && emailsMatch[1]) {
+                    emails = emailsMatch[1].split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line.startsWith('*') || line.startsWith('- ') || line.startsWith('**'))
+                        .map(line => line.replace(/^(\*|\-|\*\*)\s*/, '').trim());
+                }
+            }
+            // --- KẾT THÚC LOGIC PARSING CẢI TIẾN ---
             
-            // Đối với campaigns, bạn muốn nó là object, không phải chuỗi.
-            // Điều này phức tạp hơn vì bạn có cấu trúc lồng nhau trong phản hồi.
-            // Nếu Gemini không trả về JSON, cách đơn giản nhất là giữ nó là chuỗi,
-            // hoặc phải viết parser phức tạp để chuyển đổi chuỗi sang object.
-            // Hiện tại tôi sẽ giữ nó là mảng chuỗi đơn giản như các phần khác.
-            // Hoặc bạn phải yêu cầu Gemini trả về JSON để parse dễ hơn.
-            // For now, let's keep it as string arrays for simplicity and to unblock you.
-            // Example: campaigns: [ "Chiến dịch A: 'Khám Phá Ưu Đãi Bí Mật'...", "Chiến dịch B: 'Tri Ân Khách Hàng Thân Thiết'..." ]
-        }
+            // Trả về kết quả cho frontend
+            res.json({
+                insights: insights,
+                experiments: experiments,
+                campaigns: campaigns, 
+                emails: emails       
+            });
 
-        if (emailsMatch && emailsMatch[1]) {
-            emails = emailsMatch[1].split('\n')
-                .map(line => line.trim())
-                .filter(line => line.startsWith('*') || line.startsWith('- '))
-                .map(line => line.substring(line.indexOf(' ') + 1).trim());
+        } catch (error) {
+            // Xử lý lỗi nếu có vấn đề khi gọi Gemini API
+            console.error('Lỗi khi gọi Gemini API:', error);
+            res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
         }
-    }
-    // --- KẾT THÚC LOGIC PARSING CẢI TIẾN ---
-    
-    // Trả về kết quả cho frontend
-    res.json({
-        insights: insights,
-        experiments: experiments,
-        campaigns: campaigns, // Sẽ là mảng chuỗi
-        emails: emails       // Sẽ là mảng chuỗi
     });
-
-} catch (error) {
-    console.error('Lỗi khi gọi Gemini API:', error);
-    res.status(500).json({ error: 'Failed to get AI analysis', details: error.message });
 }
 
 
