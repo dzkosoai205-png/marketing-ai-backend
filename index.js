@@ -44,7 +44,7 @@ if (!GEMINI_API_KEY) {
 } else {
     // Khởi tạo Gemini API nếu có KEY
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // Sử dụng mô hình gemini-pro cho văn bản
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Sử dụng mô hình gemini-pro cho văn bản
 
     // Định nghĩa endpoint POST mới cho phân tích marketing AI
     app.post('/api/analyze-marketing', async (req, res) => {
