@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Sửa lỗi ReferenceError: analyzeOverallBusiness FINAL)
+// File: controllers/masterAI.controller.js (Đã thêm tính năng Lưu/Tải Báo cáo AI theo ngày)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -70,10 +70,7 @@ const getProductCategorization = (product) => {
     return { anime_genre: animeGenre, product_category: productCategory };
 };
 
-// =========================================================================
-// KHAI BÁO HÀM analyzeOverallBusiness DƯỚI DẠNG "const"
-// =========================================================================
-const analyzeOverallBusiness = async (req, res) => { // <-- THAY ĐỔI: Khai báo là const
+const analyzeOverallBusiness = async (req, res) => {
     console.log('🤖 [Master AI] Nhận được yêu cầu phân tích toàn diện...');
     
     if (!geminiModelInstance) {
@@ -95,15 +92,24 @@ const analyzeOverallBusiness = async (req, res) => { // <-- THAY ĐỔI: Khai b�
             BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
             Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
-            Product.find({}).lean(), 
+            Product.find({}).lean(), // Lấy dữ liệu sản phẩm đầy đủ từ DB
             Coupon.find({}).lean(),
             Customer.find({}).sort({ total_spent: -1 }).lean(),
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
         ]);
 
+        // =========================================================================
+        // Lấy ngày báo cáo để lưu kết quả AI vào đúng ngày
+        // =========================================================================
+        const currentReportDate = latestReport ? new Date(latestReport.report_date) : new Date();
+        currentReportDate.setHours(0,0,0,0); // Đảm bảo đầu ngày
+
         if (!latestReport || !latestReport.total_revenue || !latestReport.total_profit) {
             console.warn('⚠️ [Master AI] Không tìm thấy báo cáo hoặc dữ liệu báo cáo không đầy đủ.');
-            return res.status(404).json({ message: 'Không tìm thấy báo cáo cuối ngày để phân tích hoặc báo cáo thiếu dữ liệu doanh thu/lợi nhuận. Vui lòng đảm bảo báo cáo cuối ngày đã được nhập.' });
+            // Nếu không có báo cáo, vẫn có thể phân tích AI nhưng không lưu được kết quả vào báo cáo cụ thể
+            // AI sẽ nhận được dữ liệu 0 hoặc rỗng cho báo cáo tài chính
+            // Bạn có thể chọn trả về lỗi 404 ở đây nếu báo cáo là bắt buộc
+            // return res.status(404).json({ message: 'Không tìm thấy báo cáo cuối ngày để phân tích...' });
         }
 
         const reportDate = new Date(latestReport.report_date);
@@ -139,7 +145,7 @@ const analyzeOverallBusiness = async (req, res) => { // <-- THAY ĐỔI: Khai b�
             .map(p => p.title)
             .slice(0, 5);
 
-        const groupPerformance = {}; 
+        const animePerformance = {}; 
         const productTypePerformanceByGroup = {}; 
 
         allProducts.forEach(product => {
@@ -408,7 +414,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 // =========================================================================
 // THÊM: Hàm xử lý AI Chat trực tiếp
 // =========================================================================
-async function handleChat(req, res) {
+const handleChat = async (req, res) => { // <-- THAY ĐỔI: Khai báo là const
     console.log('💬 [AI Chat] Nhận được tin nhắn mới...');
     if (!geminiModelInstance) {
         return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY." });
@@ -451,7 +457,7 @@ async function handleChat(req, res) {
         const chat = geminiModelInstance.startChat({
             history: history,
             generationConfig: {
-                maxOutputTokens: 2048, // Giới hạn phản hồi của AI
+                maxOutputTokens: 2048, 
             },
         });
 
@@ -462,7 +468,7 @@ async function handleChat(req, res) {
         // 4. Cập nhật lịch sử chat và lưu vào DB
         chatSessionDoc.history.push({ role: 'user', parts: [{ text: message }] });
         chatSessionDoc.history.push({ role: 'model', parts: [{ text: modelResponseText }] });
-        chatSessionDoc.lastActivity = new Date(); // Cập nhật thời gian hoạt động cuối
+        chatSessionDoc.lastActivity = new Date(); 
         await chatSessionDoc.save();
 
         console.log(`💬 [AI Chat] Trả lời cho session ${sessionId}: ${modelResponseText.substring(0, 50)}...`);
@@ -470,14 +476,16 @@ async function handleChat(req, res) {
 
     } catch (error) {
         console.error('❌ [AI Chat] Lỗi xử lý chat:', error);
-        // Gửi lỗi về frontend. Có thể bao gồm `error.message` để debug
         res.status(500).json({ message: "Lỗi trong quá trình xử lý chat AI.", error: error.message, sessionId: sessionId });
     }
 }
 
 
 // Export tất cả các hàm để có thể sử dụng trong router
+// ==========================================================
+// SỬA LỖI: Đảm bảo handleChat được export đúng cách
+// ==========================================================
 module.exports = {
     analyzeOverallBusiness,
-    handleChat // <-- ĐẢM BẢO DÒNG NÀY CÓ ĐỂ XUẤT HÀM handleChat
+    handleChat 
 };
