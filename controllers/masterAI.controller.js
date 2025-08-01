@@ -1,6 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Đảm bảo lưu AI results vào DailyReport)
-// Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
+// File: controllers/masterAI.controller.js (Chuẩn hóa ngày tháng về UTC)
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DailyReport = require('../models/dailyReport.model'); 
@@ -83,8 +82,12 @@ const analyzeOverallBusiness = async (req, res) => {
     }
 
     try {
-        const queryReportDate = new Date(selectedReportDateString);
-        queryReportDate.setHours(0,0,0,0); 
+        // =========================================================================
+        // CẬP NHẬT: Chuẩn hóa ngày được chọn về đầu ngày UTC
+        // =========================================================================
+        const queryReportDateUTC = new Date(selectedReportDateString);
+        queryReportDateUTC.setUTCHours(0,0,0,0); // Đặt giờ về 0 theo UTC
+
 
         const [
             reportForAnalysis, 
@@ -96,7 +99,7 @@ const analyzeOverallBusiness = async (req, res) => {
             allCustomers,
             abandonedCheckouts
         ] = await Promise.all([
-            DailyReport.findOne({ report_date: queryReportDate }).lean(), 
+            DailyReport.findOne({ report_date: queryReportDateUTC }).lean(), // Dùng ngày UTC để truy vấn
             BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
             Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
@@ -110,7 +113,7 @@ const analyzeOverallBusiness = async (req, res) => {
             total_revenue: 0,
             total_profit: 0,
             notes: "Không có báo cáo kinh doanh được nhập cho ngày này.",
-            report_date: queryReportDate
+            report_date: queryReportDateUTC // Dùng ngày UTC đã chuẩn hóa
         };
         if (reportForAnalysis) {
             reportDataForAI = reportForAnalysis;
@@ -119,7 +122,11 @@ const analyzeOverallBusiness = async (req, res) => {
             console.warn(`⚠️ [Master AI] Không tìm thấy báo cáo cho ngày ${new Date(selectedReportDateString).toLocaleDateString('vi-VN')}. AI sẽ phân tích với dữ liệu báo cáo 0.`);
         }
 
-        const reportDateDisplay = new Date(reportDataForAI.report_date);
+        // =========================================================================
+        // Chú ý: Các tính toán dưới đây sẽ dựa vào reportDataForAI (có thể là dữ liệu thật hoặc 0)
+        // và các dữ liệu khác từ DB (orders, products, v.v.)
+        // =========================================================================
+        const reportDateDisplay = new Date(reportDataForAI.report_date); // Sử dụng ngày từ dữ liệu báo cáo
         const nextDay = new Date(reportDateDisplay);
         nextDay.setDate(reportDateDisplay.getDate() + 1);
         const todaysOrders = recentOrders.filter(o => new Date(o.created_at_haravan) >= reportDateDisplay && new Date(o.created_at_haravan) < nextDay);
@@ -410,13 +417,10 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
             return res.status(500).json({ message: 'Lỗi parsing phản hồi AI. Vui lòng kiểm tra định dạng output của AI.', rawResponse: textResponse });
         }
 
-        // =========================================================================
-        // THAY ĐỔI: Cập nhật DailyReport với kết quả AI sau khi phân tích thành công
-        // =========================================================================
         await DailyReport.findOneAndUpdate(
-            { report_date: queryReportDate }, // Tìm báo cáo của ngày được chọn
-            { $set: { ai_analysis_results: analysisResultJson } }, // Cập nhật trường AI
-            { upsert: true, new: true, setDefaultsOnInsert: true } // Upsert để tạo mới nếu chưa có
+            { report_date: queryReportDate }, 
+            { $set: { ai_analysis_results: analysisResultJson } }, 
+            { upsert: true, new: true, setDefaultsOnInsert: true } 
         );
         console.log(`✅ [Master AI] Đã lưu kết quả phân tích AI vào báo cáo ngày ${queryReportDate.toLocaleDateString('vi-VN')}.`);
 
