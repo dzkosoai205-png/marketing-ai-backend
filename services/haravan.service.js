@@ -29,7 +29,7 @@ async function fetchAllPages(endpoint) {
       }
     });
 
-    const resourceKey = endpoint.split('.')[0];
+    const resourceKey = endpoint.split('.')[0].split('?')[0];
     const resultsOnPage = response.data[resourceKey];
 
     if (resultsOnPage && resultsOnPage.length > 0) {
@@ -80,6 +80,16 @@ async function getCustomers() {
   }
 }
 
+// Hàm lấy TOÀN BỘ danh sách sản phẩm
+async function getProducts() {
+  try {
+    return await fetchAllPages('products.json');
+  } catch (error) {
+    console.error('Lỗi chi tiết khi gọi Haravan API (getProducts):', error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error('Không thể lấy dữ liệu sản phẩm từ Haravan.');
+  }
+}
+
 // Hàm TẠO một mã giảm giá mới
 async function createDiscountCode(couponData) {
   const accessToken = process.env.HARAVAN_ACCESS_TOKEN;
@@ -120,5 +130,6 @@ module.exports = {
   getDiscountCodes,
   getOrders,
   getCustomers,
+  getProducts,
   createDiscountCode
 };
