@@ -1,14 +1,13 @@
 // controllers/masterAI.controller.js
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const DailyReport = require('../models/DailyReport'); 
-const BusinessSettings = require('../models/BusinessSettings');
-const FinancialEvent = require('../models/FinancialEvent');
-const Order = require('../models/Order');
-const Product = require('../models/Product');
-const Coupon = require('../models/Coupon');
-const Customer = require('../models/Customer');
-const AbandonedCheckout = require('../models/AbandonedCheckout');
-
+const DailyReport = require('../models/dailyReport.model'); // Sửa từ DailyReport thành dailyReport.model
+const BusinessSettings = require('../models/businessSettings.model'); // Sửa từ BusinessSettings thành businessSettings.model
+const FinancialEvent = require('../models/financialEvent.model'); // Sửa từ FinancialEvent thành financialEvent.model
+const Order = require('../models/order.model'); // Sửa từ Order thành order.model
+const Product = require('../models/product.model'); // Sửa từ Product thành product.model
+const Coupon = require('../models/coupon.model'); // Sửa từ Coupon thành coupon.model
+const Customer = require('../models/customer.model'); // Sửa từ Customer thành customer.model
+const AbandonedCheckout = require('../models/abandonedCheckout.model'); // Sửa từ AbandonedCheckout thành abandonedCheckout.model
 // Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
