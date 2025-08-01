@@ -1,9 +1,11 @@
 // ==========================================================
-// File: controllers/sync.controller.js (Sử dụng date-fns-tz để chuẩn hóa múi giờ Order)
+// File: controllers/sync.controller.js (ĐÃ SỬA LỖI ĐỂ ĐỒNG BỘ SMART COLLECTIONS)
+// Nhiệm vụ: Chứa logic chính để đồng bộ dữ liệu từ Haravan về MongoDB.
 // ==========================================================
+
 const haravanService = require('../services/haravan.service');
 const Product = require('../models/product.model');
-const HaravanCollection = require('../models/haravanCollection.model');
+const HaravanCollection = require('../models/haravanCollection.model'); // Model cho Collections (Giờ là Smart Collection)
 const Coupon = require('../models/coupon.model'); 
 const Order = require('../models/order.model'); 
 const Customer = require('../models/customer.model'); 
@@ -11,8 +13,8 @@ const Customer = require('../models/customer.model');
 // THÊM: Import date-fns-tz
 const { utcToZonedTime, format } = require('date-fns-tz'); 
 
-// Cần biết múi giờ của cửa hàng Haravan của bạn (ví dụ: 'Asia/Ho_Chi_Minh' cho GMT+7)
-const STORE_TIMEZONE = 'Asia/Ho_Chi_Minh'; // HOẶC múi giờ chính xác của cửa hàng Haravan của bạn
+// THÊM: Định nghĩa múi giờ cửa hàng (PHẢI TRÙNG VỚI HARAVAN)
+const STORE_TIMEZONE = process.env.STORE_TIMEZONE || 'Asia/Ho_Chi_Minh'; // Ví dụ cho Việt Nam (GMT+7)
 
 // Hàm trợ giúp để kiểm tra xem một sản phẩm có khớp với quy tắc của Smart Collection không
 const matchesRule = (product, rule) => {
@@ -30,15 +32,28 @@ const matchesRule = (product, rule) => {
             productValue = product.vendor;
             break;
         case 'tag':
-            productValue = product.tags;
+            // Rule có thể là 'tag' (string) và product.tags cũng là string.
+            // Cần chuyển tags của sản phẩm thành mảng để kiểm tra khớp
+            productValue = product.tags ? product.tags.split(',').map(tag => tag.trim()) : [];
             break;
         case 'variant_title':
-            productValue = product.variants.map(v => v.title).join(', ');
+            productValue = product.variants.map(v => v.title).join(', '); 
             break;
         case 'price':
-            productValue = product.variants.length > 0 ? product.variants[0].price : 0;
+            // Để đơn giản, lấy giá của variant đầu tiên hoặc giá trung bình
+            productValue = product.variants.length > 0 ? product.variants[0].price : 0; 
+            break;
+        case 'compare_at_price':
+            productValue = product.variants.length > 0 ? product.variants[0].compare_at_price : 0;
+            break;
+        case 'variant_weight': // Nếu có variant.grams
+            productValue = product.variants.length > 0 ? product.variants[0].grams : 0;
+            break;
+        case 'inventory_quantity': // Nếu có variant.inventory_quantity
+            productValue = product.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0);
             break;
         default:
+            console.warn(`⚠️ [Sync] Quy tắc không xác định trong Smart Collection: ${column}`);
             return false;
     }
 
@@ -46,28 +61,62 @@ const matchesRule = (product, rule) => {
         return false;
     }
 
-    const conditionValue = condition.toLowerCase();
-    const productValueLower = String(productValue).toLowerCase();
+    const conditionValue = String(condition).toLowerCase(); // Đảm bảo condition là chuỗi
+    let isMatch = false;
 
+    // Xử lý các kiểu quan hệ
     switch (relation) {
         case 'equals':
-            return productValueLower === conditionValue;
+            if (column === 'tag') {
+                isMatch = productValue.includes(conditionValue);
+            } else if (column === 'price' || column === 'compare_at_price' || column === 'inventory_quantity' || column === 'variant_weight') {
+                isMatch = parseFloat(productValue) === parseFloat(conditionValue);
+            } else {
+                isMatch = String(productValue).toLowerCase() === conditionValue;
+            }
+            break;
         case 'not_equals':
-            return productValueLower !== conditionValue;
+            if (column === 'tag') {
+                isMatch = !productValue.includes(conditionValue);
+            } else if (column === 'price' || column === 'compare_at_price' || column === 'inventory_quantity' || column === 'variant_weight') {
+                isMatch = parseFloat(productValue) !== parseFloat(conditionValue);
+            } else {
+                isMatch = String(productValue).toLowerCase() !== conditionValue;
+            }
+            break;
         case 'contains':
-            return productValueLower.includes(conditionValue);
+            if (column === 'tag') {
+                isMatch = productValue.some(tag => tag.includes(conditionValue));
+            } else {
+                isMatch = String(productValue).toLowerCase().includes(conditionValue);
+            }
+            break;
         case 'not_contains':
-            return !productValueLower.includes(conditionValue);
+            if (column === 'tag') {
+                isMatch = !productValue.some(tag => tag.includes(conditionValue));
+            } else {
+                isMatch = !String(productValue).toLowerCase().includes(conditionValue);
+            }
+            break;
         case 'starts_with':
-            return productValueLower.startsWith(conditionValue);
+            isMatch = String(productValue).toLowerCase().startsWith(conditionValue);
+            break;
         case 'ends_with':
-            return productValueLower.endsWith(conditionValue);
+            isMatch = String(productValue).toLowerCase().endsWith(conditionValue);
+            break;
+        case 'greater_than':
+            isMatch = parseFloat(productValue) > parseFloat(conditionValue);
+            break;
+        case 'less_than':
+            isMatch = parseFloat(productValue) < parseFloat(conditionValue);
+            break;
         default:
+            console.warn(`⚠️ [Sync] Quan hệ quy tắc không xác định: ${relation}`);
             return false;
     }
+    return isMatch;
 };
 
-// Hàm chính để đồng bộ tất cả dữ liệu
 async function syncAllData(req, res) {
     console.log('🔄 Bắt đầu quá trình đồng bộ dữ liệu...');
     try {
@@ -76,46 +125,40 @@ async function syncAllData(req, res) {
             ordersFromHaravan, 
             customersFromHaravan,
             productsFromHaravan,
-            smartCollectionsFromHaravan,
-            collectsFromHaravan 
+            smartCollectionsFromHaravan // <-- CẬP NHẬT: Chỉ lấy Smart Collections
+            // XÓA: collectsFromHaravan
         ] = await Promise.all([
             haravanService.getDiscountCodes(),
             haravanService.getOrders(), 
             haravanService.getCustomers(),
             haravanService.getProducts(),
-            haravanService.getSmartCollections(),
-            haravanService.getCollects() 
+            haravanService.getSmartCollections(), // <-- CẬP NHẬT
+            // XÓA: haravanService.getCollects()
+            Promise.resolve([]) // <-- Thay thế getCollects bằng một Promise rỗng để giữ cấu trúc Promise.all
         ]);
 
-        console.log(`- Đã lấy được: ${productsFromHaravan.length} sản phẩm, ${couponsFromHaravan.length} mã, ${ordersFromHaravan.length} đơn hàng, ${customersFromHaravan.length} khách hàng, ${smartCollectionsFromHaravan.length} Smart Collections, ${collectsFromHaravan.length} collects.`);
+        console.log(`- Đã lấy được: ${productsFromHaravan.length} sản phẩm, ${couponsFromHaravan.length} mã, ${ordersFromHaravan.length} đơn hàng, ${customersFromHaravan.length} khách hàng, ${smartCollectionsFromHaravan.length} Smart Collections.`);
+        // XÓA: collectsFromHaravan khỏi log nếu không dùng
 
         // --- Bước 1.5: Đồng bộ Smart Collections vào Model MongoDB ---
         if (smartCollectionsFromHaravan && smartCollectionsFromHaravan.length > 0) {
             const collectionOps = smartCollectionsFromHaravan.map(collection => ({
                 updateOne: {
                     filter: { id: collection.id },
-                    update: { $set: { ...collection, created_at_haravan: collection.created_at, updated_at_haravan: collection.updated_at } },
+                    update: { $set: { 
+                        ...collection, 
+                        created_at_haravan: collection.created_at ? utcToZonedTime(new Date(collection.created_at), STORE_TIMEZONE) : null, 
+                        updated_at_haravan: collection.updated_at ? utcToZonedTime(new Date(collection.updated_at), STORE_TIMEZONE) : null 
+                    } },
                     upsert: true
                 }
             }));
             await HaravanCollection.bulkWrite(collectionOps);
-            console.log(`✅ Đã đồng bộ ${collectionsFromHaravan.length} Smart Collections.`);
+            console.log(`✅ Đã đồng bộ ${smartCollectionsFromHaravan.length} Smart Collections.`); // Cập nhật tên biến
         }
         
-        const collectionIdToNameMap = {};
-        collectionsFromHaravan.forEach(col => { // Lấy collectionsFromHaravan từ Promise.all
-            collectionIdToNameMap[col.id] = col.title;
-        });
-
-        const productCollectsMap = {};
-        collectsFromHaravan.forEach(collect => {
-            if (collectionIdToNameMap[collect.collection_id]) {
-                if (!productCollectsMap[collect.product_id]) {
-                    productCollectsMap[collect.product_id] = [];
-                }
-                productCollectsMap[collect.product_id].push(collect.collection_id);
-            }
-        });
+        // Không cần collectionIdToNameMap hay productCollectsMap ở đây nữa
+        // vì Product sẽ tự tính toán membership dựa trên rules.
 
         // --- Bước 2: Đồng bộ Products và ánh xạ với Smart Collections ---
         if (productsFromHaravan && productsFromHaravan.length > 0) {
@@ -123,13 +166,17 @@ async function syncAllData(req, res) {
                 const associatedCollectionIds = [];
                 const associatedCollectionNames = [];
 
-                smartCollectionsFromHaravan.forEach(collection => {
+                smartCollectionsFromHaravan.forEach(collection => { // Lặp qua Smart Collections
                     const { rules, disjunctive } = collection;
+                    
+                    // Nếu không có quy tắc nào, hoặc lỗi dữ liệu, bỏ qua collection này
+                    if (!rules || rules.length === 0) return; 
+
                     let isMatch = false;
 
-                    if (disjunctive) {
+                    if (disjunctive) { // Nếu disjunctive = true (OR)
                         isMatch = rules.some(rule => matchesRule(product, rule));
-                    } else {
+                    } else { // Nếu disjunctive = false (AND)
                         isMatch = rules.every(rule => matchesRule(product, rule));
                     }
 
@@ -145,8 +192,9 @@ async function syncAllData(req, res) {
                         update: {
                             $set: {
                                 ...product,
-                                created_at_haravan: product.created_at,
-                                updated_at_haravan: product.updated_at,
+                                // Chuẩn hóa created_at_haravan và updated_at_haravan
+                                created_at_haravan: product.created_at ? utcToZonedTime(new Date(product.created_at), STORE_TIMEZONE) : null,
+                                updated_at_haravan: product.updated_at ? utcToZonedTime(new Date(product.updated_at), STORE_TIMEZONE) : null,
                                 haravan_collection_ids: associatedCollectionIds,
                                 haravan_collection_names: associatedCollectionNames,
                                 variants: product.variants.map(haravanVariant => {
@@ -179,19 +227,17 @@ async function syncAllData(req, res) {
             console.log(`✅ Đã đồng bộ ${couponsFromHaravan.length} mã giảm giá.`);
         }
 
-        // --- Bước 4: Đồng bộ Đơn hàng (CẬP NHẬT: Chuẩn hóa created_at_haravan) ---
+        // --- Bước 4: Đồng bộ Đơn hàng (ĐÃ SỬA LỖI XỬ LÝ created_at_haravan) ---
         if (ordersFromHaravan && ordersFromHaravan.length > 0) {
             const orderOps = ordersFromHaravan.map(order => {
                 // Parse created_at từ chuỗi Haravan (thường là ISO 8601 UTC)
                 const haravanCreatedAtUTC = order.created_at ? new Date(order.created_at) : null;
                 
-                // Chuyển đổi created_at_haravan (UTC) sang múi giờ cục bộ của cửa hàng (GMT+7)
-                // và sau đó tạo một Date object mới từ đó.
-                // Điều này giúp đảm bảo ngày được tính toán đúng theo múi giờ cửa hàng khi lưu trữ
+                // Chuẩn hóa created_at_haravan (UTC) sang múi giờ cục bộ của cửa hàng (GMT+7)
                 const createdDateTimeInStoreTimezone = haravanCreatedAtUTC ? utcToZonedTime(haravanCreatedAtUTC, STORE_TIMEZONE) : null;
 
                 // Log để kiểm tra giá trị này (debug)
-                console.log(`Đơn hàng ${order.id}: created_at_haravan từ Haravan (UTC): ${haravanCreatedAtUTC?.toISOString()} -> Store Timezone: ${createdDateTimeInStoreTimezone?.toISOString()} (Locale: ${createdDateTimeInStoreTimezone?.toLocaleString('vi-VN', {timeZone: STORE_TIMEZONE})})`);
+                console.log(`Đơn hàng ${order.id}: created_at_haravan từ Haravan (RAW): ${order.created_at} -> Date Object (UTC): ${haravanCreatedAtUTC?.toISOString()} -> Store Timezone Date: ${createdDateTimeInStoreTimezone?.toISOString()} (Locale: ${createdDateTimeInStoreTimezone?.toLocaleString('vi-VN', {timeZone: STORE_TIMEZONE})})`);
 
 
                 return {
@@ -200,7 +246,7 @@ async function syncAllData(req, res) {
                         update: { 
                             $set: { 
                                 ...order, 
-                                created_at_haravan: createdDateTimeInStoreTimezone, // Lưu Date object đã điều chỉnh
+                                created_at_haravan: createdDateTimeInStoreTimezone, 
                                 updated_at_haravan: order.updated_at ? utcToZonedTime(new Date(order.updated_at), STORE_TIMEZONE) : null,
                                 cancelled_at: order.cancelled_at ? utcToZonedTime(new Date(order.cancelled_at), STORE_TIMEZONE) : null,
                             } 
