@@ -6,6 +6,9 @@
 const haravanService = require('../services/haravan.service');
 const Product = require('../models/product.model');
 const HaravanCollection = require('../models/haravanCollection.model');
+const Coupon = require('../models/coupon.model'); // <-- ĐÃ THÊM LẠI DÒNG NÀY
+const Order = require('../models/order.model'); // <-- ĐÃ THÊM LẠI DÒNG NÀY
+const Customer = require('../models/customer.model'); // <-- ĐÃ THÊM LẠI DÒNG NÀY
 
 // Hàm trợ giúp để kiểm tra xem một sản phẩm có khớp với quy tắc của Smart Collection không
 const matchesRule = (product, rule) => {
@@ -73,13 +76,13 @@ async function syncAllData(req, res) {
             ordersFromHaravan, 
             customersFromHaravan,
             productsFromHaravan,
-            smartCollectionsFromHaravan // <-- CẬP NHẬT: Dữ liệu Smart Collections
+            smartCollectionsFromHaravan
         ] = await Promise.all([
             haravanService.getDiscountCodes(),
             haravanService.getOrders(),
             haravanService.getCustomers(),
             haravanService.getProducts(),
-            haravanService.getSmartCollections() // <-- CẬP NHẬT
+            haravanService.getSmartCollections()
         ]);
 
         console.log(`- Đã lấy được: ${productsFromHaravan.length} sản phẩm, ${couponsFromHaravan.length} mã, ${ordersFromHaravan.length} đơn hàng, ${customersFromHaravan.length} khách hàng, ${smartCollectionsFromHaravan.length} Smart Collections.`);
@@ -100,7 +103,6 @@ async function syncAllData(req, res) {
         // --- Bước 2: Đồng bộ Products và ánh xạ với Smart Collections ---
         if (productsFromHaravan && productsFromHaravan.length > 0) {
             const productOps = productsFromHaravan.map(product => {
-                // LOGIC CẬP NHẬT: Xác định các Smart Collections mà sản phẩm này thuộc về
                 const associatedCollectionIds = [];
                 const associatedCollectionNames = [];
 
@@ -108,11 +110,9 @@ async function syncAllData(req, res) {
                     const { rules, disjunctive } = collection;
                     let isMatch = false;
 
-                    // Nếu disjunctive = true (OR), chỉ cần một rule khớp là được
                     if (disjunctive) {
                         isMatch = rules.some(rule => matchesRule(product, rule));
                     } else {
-                        // Nếu disjunctive = false (AND), tất cả các rules phải khớp
                         isMatch = rules.every(rule => matchesRule(product, rule));
                     }
 
@@ -132,9 +132,7 @@ async function syncAllData(req, res) {
                                 updated_at_haravan: product.updated_at,
                                 haravan_collection_ids: associatedCollectionIds,
                                 haravan_collection_names: associatedCollectionNames,
-                                // Sửa lỗi cũ: Đảm bảo trường variants được cập nhật đúng
                                 variants: product.variants.map(haravanVariant => {
-                                    // Tạo một đối tượng variant mới, bắt đầu với dữ liệu từ Haravan
                                     let newVariant = { ...haravanVariant };
                                     if (haravanVariant.cost === undefined) { 
                                         newVariant.cost = 0; 
@@ -151,8 +149,7 @@ async function syncAllData(req, res) {
             console.log(`✅ Đã đồng bộ ${productsFromHaravan.length} sản phẩm.`);
         }
 
-        // --- Các bước đồng bộ khác (Giữ nguyên) ---
-        // --- Bước 3: Đồng bộ Mã giảm giá ---
+        // --- Bước 3: Đồng bộ Mã giảm giá (Đã sửa) ---
         if (couponsFromHaravan && couponsFromHaravan.length > 0) {
             const couponOps = couponsFromHaravan.map(coupon => ({
                 updateOne: {
@@ -161,11 +158,11 @@ async function syncAllData(req, res) {
                     upsert: true
                 }
             }));
-            await Coupon.bulkWrite(couponOps);
+            await Coupon.bulkWrite(couponOps); // <-- Model Coupon được sử dụng ở đây
             console.log(`✅ Đã đồng bộ ${couponsFromHaravan.length} mã giảm giá.`);
         }
 
-        // --- Bước 4: Đồng bộ Đơn hàng ---
+        // --- Bước 4: Đồng bộ Đơn hàng (Đã sửa) ---
         if (ordersFromHaravan && ordersFromHaravan.length > 0) {
             const orderOps = ordersFromHaravan.map(order => ({
                 updateOne: {
@@ -174,11 +171,11 @@ async function syncAllData(req, res) {
                     upsert: true
                 }
             }));
-            await Order.bulkWrite(orderOps);
+            await Order.bulkWrite(orderOps); // <-- Model Order được sử dụng ở đây
             console.log(`✅ Đã đồng bộ ${ordersFromHaravan.length} đơn hàng.`);
         }
 
-        // --- Bước 5: Đồng bộ Khách hàng ---
+        // --- Bước 5: Đồng bộ Khách hàng (Đã sửa) ---
         if (customersFromHaravan && customersFromHaravan.length > 0) {
             const customerOps = customersFromHaravan.map(customer => ({
                 updateOne: {
@@ -187,7 +184,7 @@ async function syncAllData(req, res) {
                     upsert: true
                 }
             }));
-            await Customer.bulkWrite(customerOps);
+            await Customer.bulkWrite(customerOps); // <-- Model Customer được sử dụng ở đây
             console.log(`✅ Đã đồng bộ ${customersFromHaravan.length} khách hàng.`);
         }
 
