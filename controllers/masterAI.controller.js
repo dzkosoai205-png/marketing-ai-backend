@@ -438,7 +438,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
             { $set: { ai_analysis_results: analysisResultJson } }, 
             { upsert: true, new: true, setDefaultsOnInsert: true } 
         );
-        console.log(`✅ [Master AI] Đã lưu kết quả phân tích AI vào báo cáo ngày ${queryReportDate.toLocaleDateString('vi-VN')}.`);
+        console.log(`✅ [Master AI] Đã lưu kết quả phân tích AI vào báo cáo ngày ${queryDateForDailyReport.toLocaleDateString('vi-VN')}.`);
 
 
         res.status(200).json(analysisResultJson);
@@ -552,4 +552,5 @@ module.exports = {
     getDailyReportByDate, 
     handleChat 
 };
+
 
