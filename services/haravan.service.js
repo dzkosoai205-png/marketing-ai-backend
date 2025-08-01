@@ -124,6 +124,40 @@ async function createDiscountCode(couponData) {
     throw new Error('Không thể tạo mã giảm giá trên Haravan.');
   }
 }
+async function getCustomCollections() {
+  try {
+    return await fetchAllPages('custom_collections.json');
+  } catch (error) {
+    console.error('Lỗi chi tiết khi gọi Haravan API (getCustomCollections):', error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error('Không thể lấy dữ liệu Custom Collections từ Haravan.');
+  }
+}
+
+async function getCollects() {
+  try {
+    return await fetchAllPages('collects.json');
+  } catch (error) {
+    console.error('Lỗi chi tiết khi gọi Haravan API (getCollects):', error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error('Không thể lấy dữ liệu Collects từ Haravan.');
+  }
+}
+async function getCustomCollections() {
+  try {
+    return await fetchAllPages('custom_collections.json');
+  } catch (error) {
+    console.error('Lỗi chi tiết khi gọi Haravan API (getCustomCollections):', error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error('Không thể lấy dữ liệu Custom Collections từ Haravan.');
+  }
+}
+
+async function getCollects() {
+  try {
+    return await fetchAllPages('collects.json');
+  } catch (error) {
+    console.error('Lỗi chi tiết khi gọi Haravan API (getCollects):', error.response ? JSON.stringify(error.response.data) : error.message);
+    throw new Error('Không thể lấy dữ liệu Collects từ Haravan.');
+  }
+}
 
 // Xuất tất cả các hàm ra để file khác có thể sử dụng
 module.exports = {
@@ -132,4 +166,6 @@ module.exports = {
   getCustomers,
   getProducts,
   createDiscountCode
+  getCustomCollections, // <-- THÊM
+  getCollects // <-- THÊM
 };
