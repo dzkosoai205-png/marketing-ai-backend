@@ -1,17 +1,19 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Chuẩn hóa ngày tháng về UTC)
+// File: controllers/masterAI.controller.js (Đã cập nhật để dùng ngày giờ đã điều chỉnh)
+// Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DailyReport = require('../models/dailyReport.model'); 
 const BusinessSettings = require('../models/businessSettings.model');
 const FinancialEvent = require('../models/financialEvent.model');
-const Order = require('../models/order.model');
+const Order = require('../models/order.model'); 
 const Product = require('../models/product.model'); 
 const Coupon = require('../models/coupon.model');
 const Customer = require('../models/customer.model');
 const AbandonedCheckout = require('../models/abandonedCheckout.model');
 const ChatSession = require('../models/chatSession.model'); 
 
+// Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 let geminiModelInstance = null; 
@@ -83,37 +85,38 @@ const analyzeOverallBusiness = async (req, res) => {
 
     try {
         // =========================================================================
-        // CẬP NHẬT: Chuẩn hóa ngày được chọn về đầu ngày UTC
+        // Chuẩn hóa ngày truy vấn DailyReport về đầu ngày theo GMT+7 (dưới dạng UTC)
         // =========================================================================
-        const queryReportDateUTC = new Date(selectedReportDateString);
-        queryReportDateUTC.setUTCHours(0,0,0,0); // Đặt giờ về 0 theo UTC
+        const queryDateForDailyReport = new Date(selectedReportDateString); // VD: '2025-08-02'
+        // Đảm bảo là đầu ngày theo giờ VN, nhưng giá trị lưu trong DB là UTC
+        queryDateForDailyReport.setUTCHours(0,0,0,0); // Đặt giờ UTC về 0 để so sánh với report_date trong DB
 
 
         const [
             reportForAnalysis, 
             settings, 
             upcomingEvents, 
-            recentOrders, 
+            recentOrders, // Lấy orders từ Haravan, created_at_haravan đã được điều chỉnh +7 giờ
             allProducts, 
             allCoupons,
             allCustomers,
             abandonedCheckouts
         ] = await Promise.all([
-            DailyReport.findOne({ report_date: queryReportDateUTC }).lean(), // Dùng ngày UTC để truy vấn
+            DailyReport.findOne({ report_date: queryDateForDailyReport }).lean(), // Truy vấn báo cáo của ngày được chọn
             BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
-            Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
+            Order.find({ created_at_haravan: { $gte: new Date(new Date().getTime() - 30*24*60*60*1000) } }).lean(), // Lấy orders 30 ngày, đã +7 giờ
             Product.find({}).lean(), 
             Coupon.find({}).lean(),
             Customer.find({}).sort({ total_spent: -1 }).lean(),
-            AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
+            AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date().getTime() - 7*24*60*60*1000) } }).lean()
         ]);
 
         let reportDataForAI = {
             total_revenue: 0,
             total_profit: 0,
             notes: "Không có báo cáo kinh doanh được nhập cho ngày này.",
-            report_date: queryReportDateUTC // Dùng ngày UTC đã chuẩn hóa
+            report_date: queryDateForDailyReport // Ngày đã chuẩn hóa cho báo cáo
         };
         if (reportForAnalysis) {
             reportDataForAI = reportForAnalysis;
@@ -123,14 +126,23 @@ const analyzeOverallBusiness = async (req, res) => {
         }
 
         // =========================================================================
-        // Chú ý: Các tính toán dưới đây sẽ dựa vào reportDataForAI (có thể là dữ liệu thật hoặc 0)
-        // và các dữ liệu khác từ DB (orders, products, v.v.)
+        // Điều chỉnh logic lọc đơn hàng để khớp với ngày đã được điều chỉnh +7 giờ
         // =========================================================================
-        const reportDateDisplay = new Date(reportDataForAI.report_date); // Sử dụng ngày từ dữ liệu báo cáo
-        const nextDay = new Date(reportDateDisplay);
-        nextDay.setDate(reportDateDisplay.getDate() + 1);
-        const todaysOrders = recentOrders.filter(o => new Date(o.created_at_haravan) >= reportDateDisplay && new Date(o.created_at_haravan) < nextDay);
+        const startOfSelectedDayAdjusted = new Date(selectedReportDateString);
+        startOfSelectedDayAdjusted.setUTCHours(0,0,0,0); // Đầu ngày UTC cho ngày được chọn
+
+        const endOfSelectedDayAdjusted = new Date(selectedReportDateString);
+        endOfSelectedDayAdjusted.setUTCHours(23,59,59,999); // Cuối ngày UTC cho ngày được chọn
         
+        // Lọc todaysOrders dựa trên created_at_haravan (đã là +7 giờ) và các mốc thời gian UTC đã chuẩn hóa
+        const todaysOrders = recentOrders.filter(o => {
+            const orderCreatedAt = new Date(o.created_at_haravan); // Đã là Date object mang giá trị UTC đã +7 giờ
+            return orderCreatedAt.getUTCFullYear() === startOfSelectedDayAdjusted.getUTCFullYear() &&
+                   orderCreatedAt.getUTCMonth() === startOfSelectedDayAdjusted.getUTCMonth() &&
+                   orderCreatedAt.getUTCDate() === startOfSelectedDayAdjusted.getUTCDate();
+        });
+
+
         const totalRecentRevenue = recentOrders.reduce((sum, order) => sum + order.total_price, 0);
         const daysInPeriod = 30; 
         const averageDailyRevenue = totalRecentRevenue / daysInPeriod;
@@ -169,7 +181,7 @@ const analyzeOverallBusiness = async (req, res) => {
             product.product_category = product_category;
 
             const productCreatedAt = new Date(product.created_at_haravan);
-            const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
+            const daysSinceCreation = Math.ceil((new Date().getTime() - productCreatedAt.getTime()) / (1000 * 60 * 60 * 24)); // Sửa lỗi cú pháp .getTime()
             
             product.variants.forEach(variant => {
                 const price = variant.price || 0;
@@ -231,7 +243,7 @@ const analyzeOverallBusiness = async (req, res) => {
         const productDetailsForAI = allProducts.map(p => {
             const { anime_genre, product_category } = getProductCategorization(p);
             const productCreatedAt = new Date(p.created_at_haravan);
-            const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
+            const daysSinceCreation = Math.ceil((new Date().getTime() - productCreatedAt.getTime()) / (1000 * 60 * 60 * 24)); // Sửa lỗi cú pháp .getTime()
             
             const totalQuantitySoldRecentOfProduct = recentOrders.reduce((sum, order) => {
                 const item = order.line_items.find(li => li.product_id === p.id);
@@ -283,7 +295,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 - **Mọi đề xuất mã giảm giá cần được tính toán để ĐẢM BẢO LỢU NHUẬN TRÊN MỖI SẢN PHẨM TRUNG BÌNH LÀ 30% (biên lợi nhuận của bạn).** Nếu một đề xuất mã giảm giá làm giảm lợi nhuận dưới ngưỡng này, hãy giải thích rủi ro hoặc đề xuất cách bù đắp.
 
 **Dữ liệu cung cấp:**
-- **Báo cáo tài chính & kinh doanh (Hôm nay ${reportDataForAI.report_date.toLocaleDateString('vi-VN')}):**
+- **Báo cáo tài chính & kinh doanh (Ngày ${reportDataForAI.report_date.toLocaleDateString('vi-VN')}):**
   - Doanh thu ${reportDataForAI.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${reportDataForAI.total_profit.toLocaleString('vi-VN')}đ.
   - Chi phí cố định tháng (ước tính): ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
@@ -398,7 +410,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
   ]
 }
 \`\`\`
-**Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] nhưng vẫn giữ nguyên cấu trúc.**
+**Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] và giải thích lý do ngắn gọn):**
         `;
 
         const result = await geminiModelInstance.generateContent(prompt);
