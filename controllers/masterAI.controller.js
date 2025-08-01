@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Đã thêm chức năng AI Chat trực tiếp)
+// File: controllers/masterAI.controller.js (Hoàn thiện - Đã thêm chức năng AI Chat trực tiếp)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -204,7 +204,7 @@ async function analyzeOverallBusiness(req, res) {
                     };
                 }
                 groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_revenue_recent += productRevenueRecent;
-                groupPerformance[product.anime_genre].product_types_summary[product_category].total_profit_recent += productProfitRecent;
+                groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_profit_recent += productProfitRecent;
                 groupPerformance[product.anime_genre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
                 groupPerformance[product.anime_genre].product_types_summary[product_category].product_count += 1;
             });
@@ -262,7 +262,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 **Mục tiêu cốt lõi:**
 - Phân tích sâu sắc dữ liệu để đưa ra các insight có giá trị.
 - Đề xuất các hành động cụ thể, các mã giảm giá mới (hàng ngày và theo sự kiện), và các chiến dịch email marketing tự động.
-- **Mọi đề xuất mã giảm giá cần được tính toán để ĐẢM BẢO LỢI NHUẬN TRÊN MỖI SẢN PHẨM TRUNG BÌNH LÀ 30% (biên lợi nhuận của bạn).** Nếu một đề xuất mã giảm giá làm giảm lợi nhuận dưới ngưỡng này, hãy giải thích rủi ro hoặc đề xuất cách bù đắp.
+- **Mọi đề xuất mã giảm giá cần được tính toán để ĐẢM BẢO LỢU NHUẬN TRÊN MỖI SẢN PHẨM TRUNG BÌNH LÀ 30% (biên lợi nhuận của bạn).** Nếu một đề xuất mã giảm giá làm giảm lợi nhuận dưới ngưỡng này, hãy giải thích rủi ro hoặc đề xuất cách bù đắp.
 
 **Dữ liệu cung cấp:**
 - **Báo cáo tài chính & kinh doanh (Hôm nay ${latestReport.report_date.toLocaleDateString('vi-VN')}):**
@@ -407,7 +407,75 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
     }
 }
 
-// Export hàm để có thể sử dụng trong router
+// =========================================================================
+// THÊM: Hàm xử lý AI Chat trực tiếp
+// =========================================================================
+async function handleChat(req, res) {
+    console.log('💬 [AI Chat] Nhận được tin nhắn mới...');
+    if (!geminiModelInstance) {
+        return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY." });
+    }
+
+    const { sessionId, message, initialContext } = req.body;
+
+    if (!sessionId || !message) {
+        return res.status(400).json({ message: "Thiếu sessionId hoặc tin nhắn." });
+    }
+
+    try {
+        // 1. Tải lịch sử chat từ MongoDB hoặc tạo phiên mới
+        let chatSessionDoc = await ChatSession.findOne({ sessionId });
+        let history = [];
+
+        if (chatSessionDoc) {
+            history = chatSessionDoc.history;
+            console.log(`💬 [AI Chat] Đã tải lịch sử cho session ${sessionId} (${history.length} tin nhắn).`);
+        } else {
+            // Nếu là phiên mới, và có initialContext (ví dụ: kết quả phân tích Master AI)
+            if (initialContext) {
+                // Thêm context ban đầu vào lịch sử chat
+                history.push({
+                    role: 'model', // Coi như AI đã nói điều này trước đó
+                    parts: [{ text: `Dưới đây là phân tích tổng hợp mà tôi vừa cung cấp: \n\`\`\`json\n${JSON.stringify(initialContext, null, 2)}\n\`\`\`\n` }]
+                });
+                console.log(`💬 [AI Chat] Tạo session mới ${sessionId} với context ban đầu.`);
+            } else {
+                console.log(`💬 [AI Chat] Tạo session mới ${sessionId} (không có context ban đầu).`);
+            }
+            chatSessionDoc = new ChatSession({ sessionId, history });
+        }
+        
+        // 2. Khởi tạo ChatSession của Gemini với lịch sử
+        const chat = geminiModelInstance.startChat({
+            history: history,
+            generationConfig: {
+                maxOutputTokens: 2048, // Giới hạn phản hồi của AI
+            },
+        });
+
+        // 3. Gửi tin nhắn của người dùng và nhận phản hồi
+        const result = await chat.sendMessage(message);
+        const modelResponseText = result.response.text();
+
+        // 4. Cập nhật lịch sử chat và lưu vào DB
+        chatSessionDoc.history.push({ role: 'user', parts: [{ text: message }] });
+        chatSessionDoc.history.push({ role: 'model', parts: [{ text: modelResponseText }] });
+        chatSessionDoc.lastActivity = new Date(); // Cập nhật thời gian hoạt động cuối
+        await chatSessionDoc.save();
+
+        console.log(`💬 [AI Chat] Trả lời cho session ${sessionId}: ${modelResponseText.substring(0, 50)}...`);
+        res.status(200).json({ response: modelResponseText, sessionId: sessionId });
+
+    } catch (error) {
+        console.error('❌ [AI Chat] Lỗi xử lý chat:', error);
+        // Gửi lỗi về frontend. Có thể bao gồm `error.message` để debug
+        res.status(500).json({ message: "Lỗi trong quá trình xử lý chat AI.", error: error.message, sessionId: sessionId });
+    }
+}
+
+
+// Export tất cả các hàm để có thể sử dụng trong router
 module.exports = {
-    analyzeOverallBusiness
+    analyzeOverallBusiness,
+    handleChat // <-- THÊM: Export hàm handleChat
 };
