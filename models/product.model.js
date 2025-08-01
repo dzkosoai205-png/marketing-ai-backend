@@ -1,5 +1,5 @@
 // ==========================================================
-// File: models/product.model.js (Sửa đổi Tối thiểu)
+// File: models/product.model.js (Cập nhật để lưu trữ Collection Names & IDs)
 // Nhiệm vụ: Định nghĩa cấu trúc của một sản phẩm, bao gồm giá vốn, các thông tin từ Haravan API,
 //           và thêm trường cho ID và Tên Collections từ Haravan.
 // ==========================================================
@@ -83,11 +83,11 @@ const ProductSchema = new mongoose.Schema({
     not_allow_promotion: { type: Boolean, default: false },
 
     // ==========================================================
-    // <-- CÁC TRƯỜNG MỚI BẠN MUỐN THÊM CHO COLLECTIONS -->
-    // Sẽ được điền bởi quá trình đồng bộ dữ liệu của bạn
+    // <-- CÁC TRƯỜNG MỚI ĐỂ LƯU THÔNG TIN COLLECTIONS TỪ HARAVAN -->
+    // Sẽ được điền bởi quá trình đồng bộ dữ liệu (trong sync.controller.js)
     // ==========================================================
-    haravan_collection_ids: [{ type: Number }], // Các ID của Collection mà sản phẩm này thuộc về từ Haravan
-    haravan_collection_names: [{ type: String }], // Các TÊN của Collection mà sản phẩm này thuộc về từ Haravan
+    haravan_collection_ids: [{ type: Number }], // Mảng các ID của Collection mà sản phẩm này thuộc về
+    haravan_collection_names: [{ type: String }], // Mảng các TÊN của Collection mà sản phẩm này thuộc về
     
     // Các trường tùy chỉnh khác của bạn (từ file gốc bạn đã có)
     is_new_product: { type: Boolean, default: false },
