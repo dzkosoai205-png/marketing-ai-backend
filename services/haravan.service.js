@@ -39,7 +39,7 @@ async function fetchAllPages(endpoint) {
       break; 
     }
   }
-  
+   
   console.log(`✅ Đã lấy tổng cộng ${allResults.length} mục từ ${endpoint}.`);
   return allResults;
 }
@@ -124,23 +124,10 @@ async function createDiscountCode(couponData) {
     throw new Error('Không thể tạo mã giảm giá trên Haravan.');
   }
 }
-async function getCustomCollections() {
-  try {
-    return await fetchAllPages('custom_collections.json');
-  } catch (error) {
-    console.error('Lỗi chi tiết khi gọi Haravan API (getCustomCollections):', error.response ? JSON.stringify(error.response.data) : error.message);
-    throw new Error('Không thể lấy dữ liệu Custom Collections từ Haravan.');
-  }
-}
 
-async function getCollects() {
-  try {
-    return await fetchAllPages('collects.json');
-  } catch (error) {
-    console.error('Lỗi chi tiết khi gọi Haravan API (getCollects):', error.response ? JSON.stringify(error.response.data) : error.message);
-    throw new Error('Không thể lấy dữ liệu Collects từ Haravan.');
-  }
-}
+// ==========================================================
+// THÊM: Các hàm mới để lấy Collections và Collects
+// ==========================================================
 async function getCustomCollections() {
   try {
     return await fetchAllPages('custom_collections.json');
@@ -165,7 +152,7 @@ module.exports = {
   getOrders,
   getCustomers,
   getProducts,
-  createDiscountCode
+  createDiscountCode,
   getCustomCollections, // <-- THÊM
   getCollects // <-- THÊM
 };
