@@ -10,7 +10,16 @@ const DailyReportSchema = new mongoose.Schema({
     report_date: { 
         type: Date, 
         required: true, 
-        unique: true 
+        unique: true,
+        // ==========================================================
+        // THÊM: Giá trị mặc định là đầu ngày hiện tại
+        // Đảm bảo mỗi ngày chỉ có một báo cáo duy nhất
+        // ==========================================================
+        default: () => {
+            const now = new Date();
+            now.setHours(0, 0, 0, 0); // Đặt giờ, phút, giây, mili giây về 0 để lấy đầu ngày
+            return now;
+        }
     },
 
     // Dữ liệu do người dùng nhập thủ công
@@ -27,6 +36,14 @@ const DailyReportSchema = new mongoose.Schema({
     // Ghi chú thêm của người dùng (nếu có)
     notes: {
         type: String
+    },
+
+    // ==========================================================
+    // <-- THÊM: Trường để lưu trữ kết quả phân tích AI cho ngày này -->
+    // ==========================================================
+    ai_analysis_results: { 
+        type: mongoose.Schema.Types.Mixed, // Lưu dưới dạng một đối tượng linh hoạt (JSON)
+        default: null // Mặc định là null nếu chưa có phân tích AI
     }
 
 }, {
