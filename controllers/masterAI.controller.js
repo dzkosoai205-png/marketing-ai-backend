@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Sửa lỗi cuối cùng: module.exports for getDailyReportByDate)
+// File: controllers/masterAI.controller.js (Phân tích AI theo ngày được chọn)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -77,9 +77,22 @@ const analyzeOverallBusiness = async (req, res) => {
         return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY và logs khởi tạo model." });
     }
 
+    // =========================================================================
+    // THAY ĐỔI: Lấy reportDate từ body của request
+    // =========================================================================
+    const { report_date: selectedReportDateString } = req.body; 
+
+    if (!selectedReportDateString) {
+        return res.status(400).json({ message: 'Thiếu tham số ngày báo cáo (report_date) trong yêu cầu phân tích AI.' });
+    }
+
     try {
+        const queryReportDate = new Date(selectedReportDateString);
+        queryReportDate.setHours(0,0,0,0); // Đảm bảo đầu ngày để khớp với DB
+
         const [
-            latestReport, 
+            // CẬP NHẬT: Lấy báo cáo của ngày được chọn thay vì latestReport
+            reportForAnalysis, 
             settings, 
             upcomingEvents, 
             recentOrders, 
@@ -88,7 +101,7 @@ const analyzeOverallBusiness = async (req, res) => {
             allCustomers,
             abandonedCheckouts
         ] = await Promise.all([
-            DailyReport.findOne().sort({ report_date: -1 }).lean(), 
+            DailyReport.findOne({ report_date: queryReportDate }).lean(), // <-- LẤY BÁO CÁO CỦA NGÀY ĐƯỢC CHỌN
             BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
             Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
@@ -98,17 +111,27 @@ const analyzeOverallBusiness = async (req, res) => {
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
         ]);
 
-        const currentReportDate = latestReport ? new Date(latestReport.report_date) : new Date();
-        currentReportDate.setHours(0,0,0,0);
-
-        if (!latestReport || !latestReport.total_revenue || !latestReport.total_profit) {
-            console.warn('⚠️ [Master AI] Không tìm thấy báo cáo hoặc dữ liệu báo cáo không đầy đủ. Tiếp tục phân tích với dữ liệu có sẵn.');
+        // =========================================================================
+        // Điều chỉnh logic xử lý khi không tìm thấy báo cáo cho ngày được chọn
+        // =========================================================================
+        // Nếu không có báo cáo cho ngày được chọn, tạo một báo cáo giả lập để AI vẫn có prompt
+        let reportDataForAI = {
+            total_revenue: 0,
+            total_profit: 0,
+            notes: "Không có báo cáo kinh doanh được nhập cho ngày này.",
+            report_date: queryReportDate
+        };
+        if (reportForAnalysis) {
+            reportDataForAI = reportForAnalysis;
+            console.log(`✅ [Master AI] Đã tìm thấy báo cáo cho ngày ${reportDataForAI.report_date.toLocaleDateString('vi-VN')} để phân tích.`);
+        } else {
+            console.warn(`⚠️ [Master AI] Không tìm thấy báo cáo cho ngày ${new Date(selectedReportDateString).toLocaleDateString('vi-VN')}. AI sẽ phân tích với dữ liệu báo cáo 0.`);
         }
 
-        const reportDate = new Date(latestReport.report_date);
-        const nextDay = new Date(reportDate);
-        nextDay.setDate(reportDate.getDate() + 1);
-        const todaysOrders = recentOrders.filter(o => new Date(o.created_at_haravan) >= reportDate && new Date(o.created_at_haravan) < nextDay);
+        const reportDateDisplay = new Date(reportDataForAI.report_date);
+        const nextDay = new Date(reportDateDisplay);
+        nextDay.setDate(reportDateDisplay.getDate() + 1);
+        const todaysOrders = recentOrders.filter(o => new Date(o.created_at_haravan) >= reportDateDisplay && new Date(o.created_at_haravan) < nextDay);
         
         const totalRecentRevenue = recentOrders.reduce((sum, order) => sum + order.total_price, 0);
         const daysInPeriod = 30; 
@@ -262,8 +285,8 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 - **Mọi đề xuất mã giảm giá cần được tính toán để ĐẢM BẢO LỢU NHUẬN TRÊN MỖI SẢN PHẨM TRUNG BÌNH LÀ 30% (biên lợi nhuận của bạn).** Nếu một đề xuất mã giảm giá làm giảm lợi nhuận dưới ngưỡng này, hãy giải thích rủi ro hoặc đề xuất cách bù đắp.
 
 **Dữ liệu cung cấp:**
-- **Báo cáo tài chính & kinh doanh (Hôm nay ${latestReport.report_date.toLocaleDateString('vi-VN')}):**
-  - Doanh thu ${latestReport.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${latestReport.total_profit.toLocaleString('vi-VN')}đ.
+- **Báo cáo tài chính & kinh doanh (Hôm nay ${reportDataForAI.report_date.toLocaleDateString('vi-VN')}):** // Dùng reportDataForAI
+  - Doanh thu ${reportDataForAI.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${reportDataForAI.total_profit.toLocaleString('vi-VN')}đ. // Dùng reportDataForAI
   - Chi phí cố định tháng (ước tính): ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Doanh thu trung bình hàng ngày (30 ngày qua): ${averageDailyRevenue.toLocaleString('vi-VN')}đ.
@@ -504,6 +527,6 @@ const handleChat = async (req, res) => {
 // Export tất cả các hàm để có thể sử dụng trong router
 module.exports = {
     analyzeOverallBusiness,
-    getDailyReportByDate, // <-- THÊM: Export hàm getDailyReportByDate
+    getDailyReportByDate, 
     handleChat 
 };
