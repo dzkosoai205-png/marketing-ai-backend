@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const masterAIController = require('../controllers/masterAI.controller'); // Sử dụng lại controller AI
+const DailyReport = require('../models/dailyReport.model');
 
 // Route để lưu báo cáo cuối ngày (đã có)
 router.post('/reports/daily', async (req, res) => {
@@ -75,5 +76,6 @@ router.get('/reports/monthly', async (req, res) => {
         res.status(500).json({ message: 'Lỗi khi lấy báo cáo hàng tháng.', error: error.message });
     }
 });
+
 
 module.exports = router;
