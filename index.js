@@ -14,6 +14,7 @@ const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const aiRoutes = require('./routes/ai.routes'); // <-- Thêm route AI
+const analysisRoutes = require('./routes/analysis.routes');
 
 // Khởi tạo ứng dụng Express
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api', customerRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', webhookRoutes);
 app.use('/api', aiRoutes); // <-- Sử dụng route AI
+app.use('/api', analysisRoutes); // <-- Dòng mới
 
 // --- KẾT NỐI DATABASE VÀ KHỞI ĐỘNG SERVER ---
 const MONGO_URI = process.env.MONGO_URI;
