@@ -6,8 +6,6 @@
 const express = require('express');
 const router = express.Router();
 const masterAIController = require('../controllers/masterAI.controller'); // Sử dụng lại controller AI
-const reportController = require('../controllers/report.controller'); 
-
 
 // Route để lưu báo cáo cuối ngày (đã có)
 router.post('/reports/daily', async (req, res) => {
@@ -40,6 +38,42 @@ router.post('/reports/daily', async (req, res) => {
 // THÊM: Route mới để lấy báo cáo theo ngày
 // ==========================================================
 router.get('/reports/daily-by-date', masterAIController.getDailyReportByDate); // Trỏ đến hàm mới trong masterAI.controller.js
+// ==========================================================
+// THÊM: API MỚI để lấy tất cả báo cáo trong một tháng cụ thể
+// ==========================================================
+router.get('/reports/monthly', async (req, res) => {
+    const { month, year } = req.query; // Ví dụ: ?month=8&year=2025
 
+    if (!month || !year) {
+        return res.status(400).json({ message: 'Missing month or year query parameter.' });
+    }
+
+    const targetMonth = parseInt(month, 10);
+    const targetYear = parseInt(year, 10);
+
+    if (isNaN(targetMonth) || isNaN(targetYear) || targetMonth < 1 || targetMonth > 12) {
+        return res.status(400).json({ message: 'Invalid month or year format.' });
+    }
+
+    try {
+        // Tạo ngày bắt đầu và kết thúc của tháng
+        const startDate = new Date(targetYear, targetMonth - 1, 1); // Tháng trong JS là 0-11
+        const endDate = new Date(targetYear, targetMonth, 0);       // Ngày 0 của tháng tiếp theo là ngày cuối cùng của tháng này
+
+        // Truy vấn database để lấy tất cả báo cáo trong khoảng thời gian này
+        const monthlyReports = await DailyReport.find({
+            report_date: {
+                $gte: startDate, // Lớn hơn hoặc bằng ngày bắt đầu
+                $lte: endDate    // Nhỏ hơn hoặc bằng ngày kết thúc
+            }
+        }).sort({ report_date: 1 }); // Sắp xếp theo ngày để dễ xem
+
+        console.log(`✅ Đã lấy ${monthlyReports.length} báo cáo cho tháng ${month}/${year}`);
+        res.status(200).json(monthlyReports);
+    } catch (error) {
+        console.error('❌ Lỗi khi lấy báo cáo hàng tháng:', error);
+        res.status(500).json({ message: 'Lỗi khi lấy báo cáo hàng tháng.', error: error.message });
+    }
+});
 
 module.exports = router;
