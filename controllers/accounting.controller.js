@@ -1,4 +1,3 @@
-// ==========================================================
 // File: controllers/accounting.controller.js (File mới)
 // ==========================================================
 const BusinessSettings = require('../models/businessSettings.model');
