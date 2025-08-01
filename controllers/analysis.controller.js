@@ -1,11 +1,10 @@
 // ==========================================================
 // File: controllers/analysis.controller.js
-// Phiên bản này đã sửa lỗi TypeError khi gọi hàm thời gian.
+// Phiên bản này đã loại bỏ date-fns-tz và đơn giản hóa logic.
 // ==========================================================
 
 const Order = require('../models/order.model');
 const Product = require('../models/product.model');
-const dateFnsTz = require('date-fns-tz'); // <-- THAY ĐỔI CÁCH IMPORT
 
 /**
  * Controller để phân tích và trả về báo cáo tài chính trong ngày.
@@ -14,28 +13,29 @@ async function getDailyFinancials(req, res) {
   try {
     console.log('📊 Bắt đầu phân tích tài chính trong ngày...');
     
-    // --- SỬA LỖI MÚI GIỜ ---
-    const timeZone = 'Asia/Ho_Chi_Minh';
-    const nowInVietnam = dateFnsTz.utcToZonedTime(new Date(), timeZone); // <-- SỬA CÁCH GỌI HÀM
+    // --- LOGIC MỚI: TÍNH TOÁN MÚI GIỜ ĐƠN GIẢN HƠN ---
+    const now = new Date();
+    // Tạo ngày hôm nay theo giờ Việt Nam (UTC+7)
+    // new Date() là giờ UTC, getTime() trả về mili giây từ 1/1/1970 UTC.
+    // 7 * 60 * 60 * 1000 là 7 giờ tính bằng mili giây.
+    const todayInVietnam = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+
+    // Đặt thời gian về đầu ngày (00:00:00) theo giờ Việt Nam
+    const todayStart = new Date(todayInVietnam);
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    // Đặt thời gian về cuối ngày (23:59:59) theo giờ Việt Nam
+    const todayEnd = new Date(todayInVietnam);
+    todayEnd.setUTCHours(23, 59, 59, 999);
     
-    const todayStartInVietnam = new Date(nowInVietnam);
-    todayStartInVietnam.setHours(0, 0, 0, 0);
+    console.log(`- Lấy đơn hàng từ ${todayStart.toISOString()} đến ${todayEnd.toISOString()} (UTC)`);
 
-    const todayEndInVietnam = new Date(nowInVietnam);
-    todayEndInVietnam.setHours(23, 59, 59, 999);
-
-    // Chuyển đổi về giờ UTC để truy vấn MongoDB
-    const todayStartUtc = dateFnsTz.zonedTimeToUtc(todayStartInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
-    const todayEndUtc = dateFnsTz.zonedTimeToUtc(todayEndInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
-
-    console.log(`- Lấy đơn hàng từ ${dateFnsTz.format(todayStartInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })} đến ${dateFnsTz.format(todayEndInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })}`); // <-- SỬA CÁCH GỌI HÀM
-
-    // Tìm tất cả các đơn hàng đã thanh toán trong ngày hôm nay (theo giờ Việt Nam)
+    // Tìm tất cả các đơn hàng đã thanh toán trong ngày hôm nay
     const todaysPaidOrders = await Order.find({
       financial_status: 'paid',
       created_at_haravan: {
-        $gte: todayStartUtc,
-        $lte: todayEndUtc
+        $gte: todayStart,
+        $lte: todayEnd
       }
     });
 
@@ -63,7 +63,6 @@ async function getDailyFinancials(req, res) {
     const variantCostMap = new Map();
     productsInOrders.forEach(p => {
         p.variants.forEach(v => {
-            // Chỉ thêm vào map nếu variant này có trong các đơn hàng hôm nay
             if (variantIds.includes(v.id)) {
                 variantCostMap.set(v.id, v.cost || 0);
             }
