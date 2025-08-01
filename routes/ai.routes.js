@@ -1,14 +1,14 @@
 // ==========================================================
 // File: routes/ai.routes.js
-// Nhiệm vụ: Định nghĩa "đường dẫn" (URL) cho API AI.
+// Nhiệm vụ: Định nghĩa "đường dẫn" (URL) cho API AI mới.
 // ==========================================================
 
 const express = require('express');
 const router = express.Router();
 const aiController = require('../controllers/ai.controller');
 
-// Định nghĩa route: Khi có yêu cầu POST đến '/ai/analyze',
-// nó sẽ được xử lý bởi hàm analyzeBusinessData trong controller.
-router.post('/ai/analyze', aiController.analyzeBusinessData);
+// Định nghĩa route: Khi có yêu cầu POST đến '/ai/analyze-report',
+// nó sẽ được xử lý bởi hàm analyzeDailyReport trong controller.
+router.post('/ai/analyze-report', aiController.analyzeDailyReport);
 
 module.exports = router;
