@@ -5,7 +5,7 @@
 
 const Order = require('../models/order.model');
 const Product = require('../models/product.model');
-const { utcToZonedTime, zonedTimeToUtc, format } = require('date-fns-tz'); // <-- THAY ĐỔI CÁCH IMPORT
+const dateFnsTz = require('date-fns-tz'); // <-- THAY ĐỔI CÁCH IMPORT
 
 /**
  * Controller để phân tích và trả về báo cáo tài chính trong ngày.
@@ -16,7 +16,7 @@ async function getDailyFinancials(req, res) {
     
     // --- SỬA LỖI MÚI GIỜ ---
     const timeZone = 'Asia/Ho_Chi_Minh';
-    const nowInVietnam = utcToZonedTime(new Date(), timeZone); // <-- SỬA CÁCH GỌI HÀM
+    const nowInVietnam = dateFnsTz.utcToZonedTime(new Date(), timeZone); // <-- SỬA CÁCH GỌI HÀM
     
     const todayStartInVietnam = new Date(nowInVietnam);
     todayStartInVietnam.setHours(0, 0, 0, 0);
@@ -25,10 +25,10 @@ async function getDailyFinancials(req, res) {
     todayEndInVietnam.setHours(23, 59, 59, 999);
 
     // Chuyển đổi về giờ UTC để truy vấn MongoDB
-    const todayStartUtc = zonedTimeToUtc(todayStartInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
-    const todayEndUtc = zonedTimeToUtc(todayEndInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
+    const todayStartUtc = dateFnsTz.zonedTimeToUtc(todayStartInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
+    const todayEndUtc = dateFnsTz.zonedTimeToUtc(todayEndInVietnam, timeZone); // <-- SỬA CÁCH GỌI HÀM
 
-    console.log(`- Lấy đơn hàng từ ${format(todayStartInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })} đến ${format(todayEndInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })}`); // <-- SỬA CÁCH GỌI HÀM
+    console.log(`- Lấy đơn hàng từ ${dateFnsTz.format(todayStartInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })} đến ${dateFnsTz.format(todayEndInVietnam, 'yyyy-MM-dd HH:mm:ss zzz', { timeZone })}`); // <-- SỬA CÁCH GỌI HÀM
 
     // Tìm tất cả các đơn hàng đã thanh toán trong ngày hôm nay (theo giờ Việt Nam)
     const todaysPaidOrders = await Order.find({
