@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Hoàn thiện - Đã thêm chức năng AI Chat trực tiếp)
+// File: controllers/masterAI.controller.js (Sửa lỗi cuối cùng: module.exports for handleChat)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -475,7 +475,10 @@ async function handleChat(req, res) {
 
 
 // Export tất cả các hàm để có thể sử dụng trong router
+// ==========================================================
+// SỬA LỖI: Đảm bảo handleChat được export đúng cách
+// ==========================================================
 module.exports = {
     analyzeOverallBusiness,
-    handleChat // <-- THÊM: Export hàm handleChat
+    handleChat // <-- ĐẢM BẢO DÒNG NÀY CÓ ĐỂ XUẤT HÀM handleChat
 };
