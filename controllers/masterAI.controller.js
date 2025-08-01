@@ -7,10 +7,11 @@ const DailyReport = require('../models/dailyReport.model');
 const BusinessSettings = require('../models/businessSettings.model');
 const FinancialEvent = require('../models/financialEvent.model');
 const Order = require('../models/order.model');
-const Product = require('../models/product.model'); // Đảm bảo đúng tên file models
+const Product = require('../models/product.model'); 
 const Coupon = require('../models/coupon.model');
 const Customer = require('../models/customer.model');
 const AbandonedCheckout = require('../models/abandonedCheckout.model');
+const ChatSession = require('../models/chatSession.model'); // <-- THÊM: Import ChatSession Model
 
 // Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -146,7 +147,6 @@ async function analyzeOverallBusiness(req, res) {
         allProducts.forEach(product => {
             const { anime_genre, product_category } = getProductCategorization(product); 
 
-            // Cập nhật thuộc tính trực tiếp vào đối tượng product (đã .lean())
             product.anime_genre = anime_genre;
             product.product_category = product_category;
 
@@ -204,15 +204,14 @@ async function analyzeOverallBusiness(req, res) {
                     };
                 }
                 groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_revenue_recent += productRevenueRecent;
-                groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_profit_recent += productProfitRecent;
+                groupPerformance[product.anime_genre].product_types_summary[product_category].total_profit_recent += productProfitRecent;
                 groupPerformance[product.anime_genre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
                 groupPerformance[product.anime_genre].product_types_summary[product_category].product_count += 1;
             });
         });
 
         const productDetailsForAI = allProducts.map(p => {
-            // Sử dụng các thuộc tính anime_genre và product_category đã được gán vào product
-            const { anime_genre, product_category } = getProductCategorization(p); // Lấy lại để đảm bảo cập nhật cho từng obj
+            const { anime_genre, product_category } = getProductCategorization(p);
             const productCreatedAt = new Date(p.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
             
@@ -235,9 +234,9 @@ async function analyzeOverallBusiness(req, res) {
             return {
                 id: p.id,
                 title: p.title,
-                anime_genre: anime_genre, // <-- Dùng biến đã tính toán
-                product_category: product_category, // <-- Dùng biến đã tính toán
-                haravan_collection_names: p.haravan_collection_names || [], // <-- Lấy từ Model
+                anime_genre: anime_genre, 
+                product_category: product_category, 
+                haravan_collection_names: p.haravan_collection_names || [], 
                 current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
                 price: avgPrice,
                 cost: avgCost,
@@ -287,7 +286,6 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 - **Dữ liệu Vận hành & Tồn kho (Trong 30 ngày qua, cập nhật hôm nay):**
   - Top 5 sản phẩm bán chạy nhất HÔM NAY (số lượng): ${JSON.stringify(Object.entries(todaysTopProducts).sort((a, b) => b[1] - a[1]).slice(0, 5))}.
   - Các mã giảm giá đã được sử dụng HÔM NAY (số lượt): ${JSON.stringify(todaysUsedCoupons)}.
-  - Top 5 sản phẩm sắp hết hàng (tồn kho <= 5, số lượng > 0): ${JSON.stringify(lowStockProducts)}.
   - Top 5 sản phẩm bán chậm (không bán được trong 30 ngày qua, còn tồn): ${JSON.stringify(slowSellers)}.
   - **Phân tích hiệu suất theo Nhóm sản phẩm (từ Haravan Collections - Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(groupPerformance).map(([group, data]) => ({ group, ...data })))}.
   - **Phân tích hiệu suất theo Loại Sản phẩm trong từng Nhóm sản phẩm (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(productTypePerformanceByGroup).map(([group, types]) => ({ group, types: Object.entries(types).map(([type, data]) => ({ type, ...data })) })))}.
