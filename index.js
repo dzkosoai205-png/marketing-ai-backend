@@ -1,5 +1,5 @@
 // ==========================================================
-// File: index.js (Phiên bản Hoàn chỉnh cuối cùng)
+// File: index.js (Cập nhật với Route Báo cáo)
 // ==========================================================
 
 require('dotenv').config();
@@ -7,14 +7,13 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-// Nạp tất cả các file route
+// Nạp các file route
 const couponRoutes = require('./routes/coupon.routes');
 const orderRoutes = require('./routes/order.routes');
 const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
-const aiRoutes = require('./routes/ai.routes'); // <-- Thêm route AI
-const analysisRoutes = require('./routes/analysis.routes');
+const reportRoutes = require('./routes/report.routes'); // <-- Dòng mới
 
 // Khởi tạo ứng dụng Express
 const app = express();
@@ -30,8 +29,7 @@ app.use('/api', orderRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', webhookRoutes);
-app.use('/api', aiRoutes); // <-- Sử dụng route AI
-app.use('/api', analysisRoutes); // <-- Dòng mới
+app.use('/api', reportRoutes); // <-- Dòng mới
 
 // --- KẾT NỐI DATABASE VÀ KHỞI ĐỘNG SERVER ---
 const MONGO_URI = process.env.MONGO_URI;
@@ -44,7 +42,6 @@ if (!MONGO_URI) {
 mongoose.connect(MONGO_URI)
     .then(() => {
         console.log("✅ Đã kết nối thành công đến MongoDB Atlas!");
-        // Chỉ khởi động server sau khi đã kết nối database thành công
         app.listen(PORT, () => {
             console.log(`🚀 Server đang chạy tại http://localhost:${PORT}`);
         });
