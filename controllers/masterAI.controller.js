@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Phân tích AI theo ngày được chọn)
+// File: controllers/masterAI.controller.js (Đảm bảo lưu AI results vào DailyReport)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -13,7 +13,6 @@ const Customer = require('../models/customer.model');
 const AbandonedCheckout = require('../models/abandonedCheckout.model');
 const ChatSession = require('../models/chatSession.model'); 
 
-// Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 let geminiModelInstance = null; 
@@ -77,9 +76,6 @@ const analyzeOverallBusiness = async (req, res) => {
         return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY và logs khởi tạo model." });
     }
 
-    // =========================================================================
-    // THAY ĐỔI: Lấy reportDate từ body của request
-    // =========================================================================
     const { report_date: selectedReportDateString } = req.body; 
 
     if (!selectedReportDateString) {
@@ -88,10 +84,9 @@ const analyzeOverallBusiness = async (req, res) => {
 
     try {
         const queryReportDate = new Date(selectedReportDateString);
-        queryReportDate.setHours(0,0,0,0); // Đảm bảo đầu ngày để khớp với DB
+        queryReportDate.setHours(0,0,0,0); 
 
         const [
-            // CẬP NHẬT: Lấy báo cáo của ngày được chọn thay vì latestReport
             reportForAnalysis, 
             settings, 
             upcomingEvents, 
@@ -101,7 +96,7 @@ const analyzeOverallBusiness = async (req, res) => {
             allCustomers,
             abandonedCheckouts
         ] = await Promise.all([
-            DailyReport.findOne({ report_date: queryReportDate }).lean(), // <-- LẤY BÁO CÁO CỦA NGÀY ĐƯỢC CHỌN
+            DailyReport.findOne({ report_date: queryReportDate }).lean(), 
             BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
             Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
@@ -111,10 +106,6 @@ const analyzeOverallBusiness = async (req, res) => {
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
         ]);
 
-        // =========================================================================
-        // Điều chỉnh logic xử lý khi không tìm thấy báo cáo cho ngày được chọn
-        // =========================================================================
-        // Nếu không có báo cáo cho ngày được chọn, tạo một báo cáo giả lập để AI vẫn có prompt
         let reportDataForAI = {
             total_revenue: 0,
             total_profit: 0,
@@ -285,8 +276,8 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 - **Mọi đề xuất mã giảm giá cần được tính toán để ĐẢM BẢO LỢU NHUẬN TRÊN MỖI SẢN PHẨM TRUNG BÌNH LÀ 30% (biên lợi nhuận của bạn).** Nếu một đề xuất mã giảm giá làm giảm lợi nhuận dưới ngưỡng này, hãy giải thích rủi ro hoặc đề xuất cách bù đắp.
 
 **Dữ liệu cung cấp:**
-- **Báo cáo tài chính & kinh doanh (Hôm nay ${reportDataForAI.report_date.toLocaleDateString('vi-VN')}):** // Dùng reportDataForAI
-  - Doanh thu ${reportDataForAI.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${reportDataForAI.total_profit.toLocaleString('vi-VN')}đ. // Dùng reportDataForAI
+- **Báo cáo tài chính & kinh doanh (Hôm nay ${reportDataForAI.report_date.toLocaleDateString('vi-VN')}):**
+  - Doanh thu ${reportDataForAI.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${reportDataForAI.total_profit.toLocaleString('vi-VN')}đ.
   - Chi phí cố định tháng (ước tính): ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Doanh thu trung bình hàng ngày (30 ngày qua): ${averageDailyRevenue.toLocaleString('vi-VN')}đ.
@@ -400,7 +391,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
   ]
 }
 \`\`\`
-**Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] và giải thích lý do ngắn gọn):**
+**Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] nhưng vẫn giữ nguyên cấu trúc.**
         `;
 
         const result = await geminiModelInstance.generateContent(prompt);
@@ -418,6 +409,17 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
             console.error('Phản hồi Gemini không phải JSON hợp lệ:', textResponse);
             return res.status(500).json({ message: 'Lỗi parsing phản hồi AI. Vui lòng kiểm tra định dạng output của AI.', rawResponse: textResponse });
         }
+
+        // =========================================================================
+        // THAY ĐỔI: Cập nhật DailyReport với kết quả AI sau khi phân tích thành công
+        // =========================================================================
+        await DailyReport.findOneAndUpdate(
+            { report_date: queryReportDate }, // Tìm báo cáo của ngày được chọn
+            { $set: { ai_analysis_results: analysisResultJson } }, // Cập nhật trường AI
+            { upsert: true, new: true, setDefaultsOnInsert: true } // Upsert để tạo mới nếu chưa có
+        );
+        console.log(`✅ [Master AI] Đã lưu kết quả phân tích AI vào báo cáo ngày ${queryReportDate.toLocaleDateString('vi-VN')}.`);
+
 
         res.status(200).json(analysisResultJson);
 
