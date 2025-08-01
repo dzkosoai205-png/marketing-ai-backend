@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Hoàn thiện với Dữ liệu Nhóm sản phẩm - Sửa lỗi SyntaxError)
+// File: controllers/masterAI.controller.js (Hoàn thiện - Sửa lỗi cuối cùng animeGenre, Parsing và Prompts)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -15,7 +15,7 @@ const AbandonedCheckout = require('../models/abandonedCheckout.model');
 // Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-let geminiModelInstance = null; // Khai báo và khởi tạo giá trị mặc định là null
+let geminiModelInstance = null; 
 
 if (GEMINI_API_KEY) {
     try {
@@ -31,26 +31,30 @@ if (GEMINI_API_KEY) {
 }
 
 // =========================================================================
-// Hàm trợ giúp để lấy thông tin phân loại sản phẩm (tận dụng Haravan Collections)
+// SỬA LỖI VÀ TỐI ƯU: Hàm trợ giúp để lấy thông tin phân loại sản phẩm
+// Giờ sẽ ưu tiên DÙNG TRỰC TIẾP haravan_collection_names cho anime_genre
 // =========================================================================
 const getProductCategorization = (product) => {
-    let animeGenre = 'Anime/Series Khác'; // Mặc định nếu không tìm thấy collection anime
-    let productCategory = 'Loại Khác'; // Mặc định nếu không tìm thấy loại sản phẩm cụ thể
+    let animeGenre = 'Anime/Series Khác'; 
+    let productCategory = 'Loại Khác'; 
 
-    // ƯU TIÊN: Lấy tên anime từ haravan_collection_names
+    // ƯU TIÊN: Lấy tên anime từ haravan_collection_names một cách trực tiếp
     if (product.haravan_collection_names && product.haravan_collection_names.length > 0) {
-        // Cố gắng tìm collection name có vẻ là tên anime/series
-        const animeCollection = product.haravan_collection_names.find(col => 
-            col.toLowerCase().includes('anime') || col.toLowerCase().includes('series') || col.toLowerCase().includes('fanpage') || col.toLowerCase().includes('manga')
-        );
-        if (animeCollection) {
-            animeGenre = animeCollection.replace(/collection|series|fanpage|manga|anime/gi, '').trim() || animeCollection.trim(); 
+        // Cố gắng tìm một collection name có vẻ là tên anime/series (ví dụ: "Blue Lock", "Conan")
+        const mainAnimeCollection = product.haravan_collection_names.find(colName => {
+            const lowerColName = colName.toLowerCase();
+            return !lowerColName.includes('hàng có sẵn') && !lowerColName.includes('bán chạy') && !lowerColName.includes('hàng mới'); // Lọc các collection chung chung
+        });
+
+        if (mainAnimeCollection) {
+            animeGenre = mainAnimeCollection.trim();
         } else {
-            // Nếu không có collection tên anime, lấy tên collection đầu tiên có thể là anime
+            // Fallback: nếu không tìm thấy collection SPECIFIC anime, lấy tên collection đầu tiên
+            // có thể là tên anime hoặc một phân loại chính khác
             animeGenre = product.haravan_collection_names[0].trim();
         }
     } else {
-        // FALLBACK: Trích xuất từ title nếu không có collection name
+        // FALLBACK CUỐI CÙNG: Trích xuất từ title nếu không có haravan_collection_names
         const animeGenreMatch = product.title.match(/\[(.*?)\]/);
         animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Anime/Series Khác (từ tiêu đề)';
     }
@@ -144,12 +148,12 @@ async function analyzeOverallBusiness(req, res) {
             .map(p => p.title)
             .slice(0, 5);
 
-        // --- Phân tích hiệu suất theo Anime và loại sản phẩm ---
+        // --- Phân tích hiệu suất theo Anime và loại sản phẩm (ĐÃ SỬA LỖI PHẠM VI BIẾN VÀ LOGIC) ---
         const animePerformance = {}; 
         const productTypePerformanceByAnime = {}; 
 
         allProducts.forEach(product => {
-            const { anime_genre, product_category } = getProductCategorization(product);
+            const { anime_genre, product_category } = getProductCategorization(product); 
 
             const productCreatedAt = new Date(product.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
@@ -166,8 +170,8 @@ async function analyzeOverallBusiness(req, res) {
                 const productRevenueRecent = quantitySoldRecent * price;
                 const productProfitRecent = quantitySoldRecent * (price - cost); 
 
-                if (!animePerformance[animeGenre]) {
-                    animePerformance[animeGenre] = { 
+                if (!animePerformance[anime_genre]) { 
+                    animePerformance[anime_genre] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
@@ -175,39 +179,39 @@ async function analyzeOverallBusiness(req, res) {
                         product_types_summary: {} 
                     };
                 }
-                animePerformance[animeGenre].total_revenue_recent += productRevenueRecent;
-                animePerformance[animeGenre].total_profit_recent += productProfitRecent;
-                animePerformance[animeGenre].total_quantity_recent += quantitySoldRecent;
-                animePerformance[animeGenre].total_products += 1; 
+                animePerformance[anime_genre].total_revenue_recent += productRevenueRecent;
+                animePerformance[anime_genre].total_profit_recent += productProfitRecent;
+                animePerformance[animeGenre].total_quantity_recent += quantitySoldRecent; // Sửa lỗi sử dụng animeGenre
+                animePerformance[animeGenre].total_products += 1; // Sửa lỗi sử dụng animeGenre
 
-                if (!productTypePerformanceByAnime[animeGenre]) {
-                    productTypePerformanceByAnime[animeGenre] = {};
+                if (!productTypePerformanceByAnime[anime_genre]) {
+                    productTypePerformanceByAnime[anime_genre] = {};
                 }
-                if (!productTypePerformanceByAnime[animeGenre][product_category]) {
-                    productTypePerformanceByAnime[animeGenre][product_category] = { 
+                if (!productTypePerformanceByAnime[anime_genre][product_category]) {
+                    productTypePerformanceByAnime[anime_genre][product_category] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
                         product_count: 0 
                     };
                 }
-                productTypePerformanceByAnime[animeGenre][product_category].total_revenue_recent += productRevenueRecent;
-                productTypePerformanceByAnime[animeGenre][product_category].total_profit_recent += productProfitRecent;
-                productTypePerformanceByAnime[animeGenre][product_category].total_quantity_recent += quantitySoldRecent;
-                productTypePerformanceByAnime[animeGenre][product_category].product_count += 1;
+                productTypePerformanceByAnime[anime_genre][product_category].total_revenue_recent += productRevenueRecent;
+                productTypePerformanceByAnime[anime_genre][product_category].total_profit_recent += productProfitRecent;
+                productTypePerformanceByAnime[anime_genre][product_category].total_quantity_recent += quantitySoldRecent;
+                productTypePerformanceByAnime[anime_genre][product_category].product_count += 1;
 
-                if (!animePerformance[animeGenre].product_types_summary[product_category]) {
-                    animePerformance[animeGenre].product_types_summary[product_category] = { 
+                if (!animePerformance[anime_genre].product_types_summary[product_category]) {
+                    animePerformance[anime_genre].product_types_summary[product_category] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
                         product_count: 0 
                     };
                 }
-                animePerformance[animeGenre].product_types_summary[product_category].total_revenue_recent += productRevenueRecent;
-                animePerformance[animeGenre].product_types_summary[product_category].total_profit_recent += productProfitRecent;
-                animePerformance[animeGenre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
-                animePerformance[animeGenre].product_types_summary[product_category].product_count += 1;
+                animePerformance[anime_genre].product_types_summary[product_category].total_revenue_recent += productRevenueRecent;
+                animePerformance[anime_genre].product_types_summary[product_category].total_profit_recent += productProfitRecent;
+                animePerformance[anime_genre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
+                animePerformance[anime_genre].product_types_summary[product_category].product_count += 1;
             });
         });
 
@@ -221,8 +225,9 @@ async function analyzeOverallBusiness(req, res) {
                 return sum + (item ? item.quantity : 0);
             }, 0);
 
-            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0); // SỬA LỖI CÚ PHÁP
-            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0); // SỬA LỖI CÚ PHÁP
+            // SỬA LỖI CÚ PHÁP: reduce((sum, v) => sum + (v.price || 0))
+            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0); 
+            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0); 
             const avgPrice = p.variants.length > 0 ? (totalVariantPrice / p.variants.length) : 0;
             const avgCost = p.variants.length > 0 ? (totalVariantCost / p.variants.length) : 0;
             
@@ -238,7 +243,7 @@ async function analyzeOverallBusiness(req, res) {
                 anime_genre: anime_genre,
                 product_category: product_category,
                 haravan_collection_names: p.haravan_collection_names || [], // <-- Lấy từ Model
-                current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0), // SỬA LỖI CÚ PHÁP
+                current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
                 price: avgPrice,
                 cost: avgCost,
                 days_since_creation: daysSinceCreation,
@@ -278,7 +283,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       days_left: Math.ceil((new Date(e.due_date) - new Date()) / (1000 * 60 * 60 * 24)) 
     })))}.
   - **Phân tích tài chính cho Sự kiện sắp tới:**
-    - Tổng chi phí sắp tới: ${upcomingEvents.reduce((sum, e) => sum + e.amount, 0).toLocaleString('vi-VN')}đ. // SỬA LỖI CÚ PHÁP
+    - Tổng chi phí sắp tới: ${upcomingEvents.reduce((sum, e) => sum + e.amount, 0).toLocaleString('vi-VN')}đ.
     - Doanh thu cần kiếm thêm mỗi ngày để đủ chi phí (nếu doanh thu trung bình hiện tại không đủ): 
       ${(upcomingEvents.length > 0 && upcomingEvents[0].days_left > 0 && upcomingEvents.reduce((sum, e) => sum + e.amount, 0) > (averageDailyRevenue * upcomingEvents[0].days_left)) 
         ? ((upcomingEvents.reduce((sum, e) => sum + e.amount, 0) - (averageDailyRevenue * upcomingEvents[0].days_left)) / upcomingEvents[0].days_left).toLocaleString('vi-VN') + 'đ/ngày' 
