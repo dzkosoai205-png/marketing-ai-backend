@@ -1,19 +1,20 @@
-// controllers/masterAI.controller.js
+// ==========================================================
+// File: controllers/masterAI.controller.js (Hoàn thiện với Dữ liệu Nhóm sản phẩm)
+// Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh.
+// ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const DailyReport = require('../models/dailyReport.model'); // Sửa từ DailyReport thành dailyReport.model
-const BusinessSettings = require('../models/businessSettings.model'); // Sửa từ BusinessSettings thành businessSettings.model
-const FinancialEvent = require('../models/financialEvent.model'); // Sửa từ FinancialEvent thành financialEvent.model
-const Order = require('../models/order.model'); // Sửa từ Order thành order.model
-const Product = require('../models/product.model'); // Sửa từ Product thành product.model
-const Coupon = require('../models/coupon.model'); // Sửa từ Coupon thành coupon.model
-const Customer = require('../models/customer.model'); // Sửa từ Customer thành customer.model
-const AbandonedCheckout = require('../models/abandonedCheckout.model'); // Sửa từ AbandonedCheckout thành abandonedCheckout.model
+const DailyReport = require('../models/dailyReport.model'); 
+const BusinessSettings = require('../models/businessSettings.model');
+const FinancialEvent = require('../models/financialEvent.model');
+const Order = require('../models/order.model');
+const Product = require('../models/product.model'); // Đảm bảo đúng tên file models
+const Coupon = require('../models/coupon.model');
+const Customer = require('../models/customer.model');
+const AbandonedCheckout = require('../models/abandonedCheckout.model');
+
 // Lấy API Key từ biến môi trường
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// =========================================================================
-// THAY ĐỔI CÁCH KHỞI TẠO MODEL ĐỂ TRÁNH ReferenceError
-// =========================================================================
 let geminiModelInstance = null; // Khai báo và khởi tạo giá trị mặc định là null
 
 if (GEMINI_API_KEY) {
@@ -24,49 +25,92 @@ if (GEMINI_API_KEY) {
     } catch (error) {
         console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
         console.warn("Cảnh báo: Tính năng AI sẽ không hoạt động do lỗi khởi tạo model.");
-        // Giữ geminiModelInstance là null để hàm analyzeOverallBusiness có thể xử lý
     }
 } else {
     console.warn("Cảnh báo: Biến môi trường GEMINI_API_KEY chưa được thiết lập. Tính năng AI sẽ không hoạt động.");
 }
 
+// =========================================================================
+// Hàm trợ giúp để lấy thông tin phân loại sản phẩm (tận dụng Haravan Collections)
+// =========================================================================
+const getProductCategorization = (product) => {
+    let animeGenre = 'Anime/Series Khác'; // Mặc định nếu không tìm thấy collection anime
+    let productCategory = 'Loại Khác'; // Mặc định nếu không tìm thấy loại sản phẩm cụ thể
+
+    // ƯU TIÊN: Lấy tên anime/series từ haravan_collection_names
+    if (product.haravan_collection_names && product.haravan_collection_names.length > 0) {
+        // Cố gắng tìm một collection name có vẻ là tên anime/series
+        const animeCollection = product.haravan_collection_names.find(col => 
+            col.toLowerCase().includes('anime') || col.toLowerCase().includes('series') || col.toLowerCase().includes('fanpage') || col.toLowerCase().includes('manga')
+        );
+        if (animeCollection) {
+            animeGenre = animeCollection.replace(/collection|series|fanpage|manga|anime/gi, '').trim() || animeCollection.trim(); 
+        } else {
+            // Nếu không có collection tên anime, lấy tên collection đầu tiên có thể là anime
+            animeGenre = product.haravan_collection_names[0].trim();
+        }
+    } else {
+        // FALLBACK: Trích xuất từ title nếu không có collection name
+        const animeGenreMatch = product.title.match(/\[(.*?)\]/);
+        animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Anime/Series Khác (từ tiêu đề)';
+    }
+
+    // Các loại sản phẩm bạn đã phân loại (Thẻ, Đồ bông, v.v.)
+    const predefinedCategories = ["Thẻ", "Đồ bông", "Móc khóa", "Mô hình", "Poster", "Artbook", "Áo", "Phụ kiện", "Gói", "Tượng", "Văn phòng phẩm", "Đồ chơi"]; 
+    const lowerCaseTitle = product.title.toLowerCase();
+
+    for (const category of predefinedCategories) {
+        if (lowerCaseTitle.includes(category.toLowerCase())) {
+            productCategory = category;
+            break;
+        }
+    }
+    // FALLBACK: Sử dụng product_type của Haravan nếu predefinedCategory không khớp
+    if (productCategory === 'Loại Khác' && product.product_type) {
+        productCategory = product.product_type; 
+    }
+    // FALLBACK cuối cùng: Lấy từ đầu tiêu đề nếu không có gì đặc biệt
+    if (productCategory === 'Loại Khác' && product.title.split(' ').length > 0) {
+        productCategory = product.title.split(' ')[0].trim();
+    }
+
+    return { anime_genre: animeGenre, product_category: productCategory };
+};
+
+
 async function analyzeOverallBusiness(req, res) {
     console.log('🤖 [Master AI] Nhận được yêu cầu phân tích toàn diện...');
     
-    // =========================================================================
-    // SỬ DỤNG geminiModelInstance THAY VÌ model VÀ KIỂM TRA TÍNH HỢP LỆ
-    // =========================================================================
-    if (!geminiModelInstance) { // <-- Lỗi của bạn ở đây, giờ đã sửa
+    if (!geminiModelInstance) {
         return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY và logs khởi tạo model." });
     }
 
     try {
-        // ... (Bước 1: Lấy dữ liệu từ Database - Giữ nguyên) ...
         const [
             latestReport, 
             settings, 
             upcomingEvents, 
-            recentOrders,
-            allProducts,
+            recentOrders, 
+            allProducts, 
             allCoupons,
             allCustomers,
             abandonedCheckouts
         ] = await Promise.all([
-            DailyReport.findOne().sort({ report_date: -1 }),
-            BusinessSettings.findOne({ shop_id: 'main_settings' }),
-            FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }),
-            Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(), // Thêm .lean()
-            Product.find({}).lean(), 
+            DailyReport.findOne().sort({ report_date: -1 }).lean(), 
+            BusinessSettings.findOne({ shop_id: 'main_settings' }).lean(),
+            FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }).lean(),
+            Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(),
+            Product.find({}).lean(), // Lấy dữ liệu sản phẩm đầy đủ từ DB
             Coupon.find({}).lean(),
             Customer.find({}).sort({ total_spent: -1 }).lean(),
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
         ]);
 
-        if (!latestReport) {
-            return res.status(404).json({ message: 'Không tìm thấy báo cáo nào để phân tích. Vui lòng nhập báo cáo cuối ngày trước.' });
+        if (!latestReport || !latestReport.total_revenue || !latestReport.total_profit) {
+            console.warn('⚠️ [Master AI] Không tìm thấy báo cáo hoặc dữ liệu báo cáo không đầy đủ.');
+            return res.status(404).json({ message: 'Không tìm thấy báo cáo cuối ngày để phân tích hoặc báo cáo thiếu dữ liệu doanh thu/lợi nhuận. Vui lòng đảm bảo báo cáo cuối ngày đã được nhập.' });
         }
 
-        // ... (Bước 2: Xử lý và tổng hợp dữ liệu chi tiết cho prompt - Giữ nguyên) ...
         const reportDate = new Date(latestReport.report_date);
         const nextDay = new Date(reportDate);
         nextDay.setDate(reportDate.getDate() + 1);
@@ -94,27 +138,25 @@ async function analyzeOverallBusiness(req, res) {
             .map(p => p.title)
             .slice(0, 5);
             
-        const soldProductIds = new Set(recentOrders.flatMap(o => o.line_items.map(li => li.product_id)));
+        const soldProductIdsInRecentOrders = new Set(recentOrders.flatMap(o => o.line_items.map(li => li.product_id)));
         const slowSellers = allProducts
-            .filter(p => !soldProductIds.has(p.id) && p.variants.some(v => v.inventory_quantity > 0))
+            .filter(p => !soldProductIdsInRecentOrders.has(p.id) && p.variants.some(v => v.inventory_quantity > 0))
             .map(p => p.title)
             .slice(0, 5);
 
+        // --- Phân tích hiệu suất theo Anime và loại sản phẩm ---
         const animePerformance = {}; 
         const productTypePerformanceByAnime = {}; 
 
         allProducts.forEach(product => {
-            const animeGenreMatch = product.title.match(/\[(.*?)\]/);
-            const animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Không rõ Anime';
-            const productTitleParts = product.title.split(' ');
-            const productType = productTitleParts.length > 1 ? productTitleParts[0] : 'Không rõ loại'; 
+            const { anime_genre, product_category } = getProductCategorization(product);
 
             const productCreatedAt = new Date(product.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
             
             product.variants.forEach(variant => {
                 const price = variant.price || 0;
-                const cost = variant.cost || 0; // Cần thêm trường 'cost' vào Product Variant nếu có
+                const cost = variant.cost || 0; 
 
                 const quantitySoldRecent = recentOrders.reduce((sum, order) => {
                     const item = order.line_items.find(li => li.variant_id === variant.id);
@@ -122,59 +164,87 @@ async function analyzeOverallBusiness(req, res) {
                 }, 0);
 
                 const productRevenueRecent = quantitySoldRecent * price;
+                const productProfitRecent = quantitySoldRecent * (price - cost); 
 
                 if (!animePerformance[animeGenre]) {
-                    animePerformance[animeGenre] = { total_revenue_recent: 0, total_quantity_recent: 0, products: [] };
+                    animePerformance[animeGenre] = { 
+                        total_revenue_recent: 0, 
+                        total_profit_recent: 0, 
+                        total_quantity_recent: 0, 
+                        total_products: 0,
+                        product_types_summary: {} 
+                    };
                 }
                 animePerformance[animeGenre].total_revenue_recent += productRevenueRecent;
+                animePerformance[animeGenre].total_profit_recent += productProfitRecent;
                 animePerformance[animeGenre].total_quantity_recent += quantitySoldRecent;
-                animePerformance[animeGenre].products.push({
-                    title: product.title,
-                    product_type: productType,
-                    price: price,
-                    inventory_quantity: variant.inventory_quantity,
-                    quantity_sold_recent: quantitySoldRecent,
-                    days_since_creation: daysSinceCreation,
-                    is_slow_seller: slowSellers.includes(product.title)
-                });
+                animePerformance[animeGenre].total_products += 1; 
 
                 if (!productTypePerformanceByAnime[animeGenre]) {
                     productTypePerformanceByAnime[animeGenre] = {};
                 }
-                if (!productTypePerformanceByAnime[animeGenre][productType]) {
-                    productTypePerformanceByAnime[animeGenre][productType] = { total_revenue_recent: 0, total_quantity_recent: 0 };
+                if (!productTypePerformanceByAnime[animeGenre][product_category]) {
+                    productTypePerformanceByAnime[animeGenre][product_category] = { 
+                        total_revenue_recent: 0, 
+                        total_profit_recent: 0, 
+                        total_quantity_recent: 0, 
+                        product_count: 0 
+                    };
                 }
-                productTypePerformanceByAnime[animeGenre][productType].total_revenue_recent += productRevenueRecent;
-                productTypePerformanceByAnime[animeGenre][productType].total_quantity_recent += quantitySoldRecent;
+                productTypePerformanceByAnime[animeGenre][product_category].total_revenue_recent += productRevenueRecent;
+                productTypePerformanceByAnime[animeGenre][product_category].total_profit_recent += productProfitRecent;
+                productTypePerformanceByAnime[animeGenre][product_category].total_quantity_recent += quantitySoldRecent;
+                productTypePerformanceByAnime[animeGenre][product_category].product_count += 1;
+
+                if (!animePerformance[animeGenre].product_types_summary[product_category]) {
+                    animePerformance[animeGenre].product_types_summary[product_category] = { 
+                        total_revenue_recent: 0, 
+                        total_profit_recent: 0, 
+                        total_quantity_recent: 0, 
+                        product_count: 0 
+                    };
+                }
+                animePerformance[animeGenre].product_types_summary[product_category].total_revenue_recent += productRevenueRecent;
+                animePerformance[animeGenre].product_types_summary[product_category].total_profit_recent += productProfitRecent;
+                animePerformance[animeGenre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
+                animePerformance[animeGenre].product_types_summary[product_category].product_count += 1;
             });
         });
 
         const productDetailsForAI = allProducts.map(p => {
-            const animeGenreMatch = p.title.match(/\[(.*?)\]/);
-            const animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Không rõ Anime';
-            const productTitleParts = p.title.split(' ');
-            const productType = productTitleParts.length > 1 ? productTitleParts[0] : 'Không rõ loại'; 
+            const { anime_genre, product_category } = getProductCategorization(p);
             const productCreatedAt = new Date(p.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
-            const totalQuantitySoldAllTime = recentOrders.reduce((sum, order) => {
+            
+            const totalQuantitySoldRecentOfProduct = recentOrders.reduce((sum, order) => {
                 const item = order.line_items.find(li => li.product_id === p.id);
                 return sum + (item ? item.quantity : 0);
             }, 0);
-            const avgPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0) / p.variants.length;
-            const totalRevenueAllTime = totalQuantitySoldAllTime * avgPrice; 
+
+            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0);
+            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0);
+            const avgPrice = p.variants.length > 0 ? (totalVariantPrice / p.variants.length) : 0;
+            const avgCost = p.variants.length > 0 ? (totalVariantCost / p.variants.length) : 0;
+            
+            const totalRevenueRecentOfProduct = totalQuantitySoldRecentOfProduct * avgPrice;
+            const totalProfitRecentOfProduct = totalQuantitySoldRecentOfProduct * (avgPrice - avgCost);
+
             const isLowStock = lowStockProducts.includes(p.title);
             const isSlowSeller = slowSellers.includes(p.title);
 
             return {
                 id: p.id,
                 title: p.title,
-                anime_genre: animeGenre,
-                product_type: productType,
+                anime_genre: anime_genre,
+                product_category: product_category,
+                haravan_collection_names: p.haravan_collection_names || [], // <-- Lấy từ Model
                 current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
                 price: avgPrice,
+                cost: avgCost,
                 days_since_creation: daysSinceCreation,
-                total_quantity_sold_all_time: totalQuantitySoldAllTime,
-                total_revenue_all_time: totalRevenueAllTime,
+                total_quantity_sold_recent: totalQuantitySoldRecentOfProduct,
+                total_revenue_recent: totalRevenueRecentOfProduct,         
+                total_profit_recent: totalProfitRecentOfProduct,           
                 is_low_stock: isLowStock,
                 is_slow_seller: isSlowSeller
             };
@@ -188,7 +258,6 @@ async function analyzeOverallBusiness(req, res) {
             orders_count: c.orders_count
         }));
         
-        // --- Bước 3: Tạo một PROMPT CHUYÊN SÂU cho AI (Yêu cầu JSON output) ---
         const prompt = `
 Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp cao cho một cửa hàng thương mại điện tử chuyên bán đồ anime. Nhiệm vụ của bạn là phân tích toàn diện dữ liệu kinh doanh, đưa ra các đề xuất chiến lược chi tiết, có thể hành động được, nhằm tối ưu hóa doanh thu, lợi nhuận, và hiệu quả hoạt động marketing. Bạn cần xem xét cả tình hình tài chính, vận hành, tồn kho và hành vi khách hàng.
 **Mục tiêu cốt lõi:**
@@ -202,16 +271,27 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
   - Chi phí cố định tháng (ước tính): ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Doanh thu trung bình hàng ngày (30 ngày qua): ${averageDailyRevenue.toLocaleString('vi-VN')}đ.
-  - Sự kiện chi tiền lớn sắp tới: ${JSON.stringify(upcomingEvents.map(e => ({name: e.event_name, amount: e.amount, due_date: e.due_date.toLocaleDateString('vi-VN'), days_left: Math.ceil((new Date(e.due_date) - new Date()) / (1000 * 60 * 60 * 24)) })))}.
+  - Sự kiện chi tiền lớn sắp tới: ${JSON.stringify(upcomingEvents.map(e => ({
+      name: e.event_name, 
+      amount: e.amount, 
+      due_date: e.due_date.toLocaleDateString('vi-VN'), 
+      days_left: Math.ceil((new Date(e.due_date) - new Date()) / (1000 * 60 * 60 * 24)) 
+    })))}.
+  - **Phân tích tài chính cho Sự kiện sắp tới:**
+    - Tổng chi phí sắp tới: ${upcomingEvents.reduce((sum, e) => sum + e.amount, 0).toLocaleString('vi-VN')}đ.
+    - Doanh thu cần kiếm thêm mỗi ngày để đủ chi phí (nếu doanh thu trung bình hiện tại không đủ): 
+      ${(upcomingEvents.length > 0 && upcomingEvents[0].days_left > 0 && upcomingEvents.reduce((sum, e) => sum + e.amount, 0) > (averageDailyRevenue * upcomingEvents[0].days_left)) 
+        ? ((upcomingEvents.reduce((sum, e) => sum + e.amount, 0) - (averageDailyRevenue * upcomingEvents[0].days_left)) / upcomingEvents[0].days_left).toLocaleString('vi-VN') + 'đ/ngày' 
+        : 'Không cần lo lắng dựa trên doanh thu hiện tại hoặc không có sự kiện.'}.
 
 - **Dữ liệu Vận hành & Tồn kho (Trong 30 ngày qua, cập nhật hôm nay):**
   - Top 5 sản phẩm bán chạy nhất HÔM NAY (số lượng): ${JSON.stringify(Object.entries(todaysTopProducts).sort((a, b) => b[1] - a[1]).slice(0, 5))}.
   - Các mã giảm giá đã được sử dụng HÔM NAY (số lượt): ${JSON.stringify(todaysUsedCoupons)}.
   - Top 5 sản phẩm sắp hết hàng (tồn kho <= 5, số lượng > 0): ${JSON.stringify(lowStockProducts)}.
   - Top 5 sản phẩm bán chậm (không bán được trong 30 ngày qua, còn tồn): ${JSON.stringify(slowSellers)}.
-  - **Phân tích hiệu suất theo Anime (Tổng quan 30 ngày):** ${JSON.stringify(animePerformance)}.
-  - **Phân tích hiệu suất theo Loại Sản phẩm trong từng Anime (Tổng quan 30 ngày):** ${JSON.stringify(productTypePerformanceByAnime)}.
-  - **Chi tiết tất cả sản phẩm:** ${JSON.stringify(productDetailsForAI)}.
+  - **Phân tích hiệu suất theo Anime (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(animePerformance).map(([genre, data]) => ({ genre, ...data })))}.
+  - **Phân tích hiệu suất theo Loại Sản phẩm trong từng Anime (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(productTypePerformanceByAnime).map(([anime, types]) => ({ anime, types: Object.entries(types).map(([type, data]) => ({ type, ...data })) })))}.
+  - **Chi tiết tất cả sản phẩm (bao gồm anime_genre, product_category, haravan_collection_names, giá, giá vốn, ngày tạo, số lượng bán trong 30 ngày, doanh thu, lợi nhuận, tồn kho, bán chậm):** ${JSON.stringify(productDetailsForAI)}.
 
 - **Dữ liệu Khuyến mãi & Khách hàng (Tổng thể và gần đây):**
   - Tổng số mã giảm giá đang có: ${allCoupons.length}.
@@ -226,20 +306,21 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
   "alerts": [
     { 
       "type": "warning | info | critical", 
-      "message": "Cảnh báo quan trọng nhất về tình hình kinh doanh, dòng tiền, tồn kho, doanh số. Ví dụ: 'Dòng tiền có thể gặp vấn đề nếu không đạt doanh thu X để bù đặp chi phí sắp tới Y.' Tối đa 2 cảnh báo." 
+      "message": "Cảnh báo quan trọng nhất về tình hình kinh doanh, dòng tiền, tồn kho, doanh số. Ví dụ: 'Dòng tiền có thể gặp vấn đề nếu không đạt doanh thu X để bù đắp chi phí sắp tới Y.' Tối đa 2 cảnh báo." 
     }
   ],
   "insights": [
-    { "title": "Tiêu đề Insight 1", "description": "Nhận định sâu sắc 1. Hãy tìm mối liên hệ giữa các bộ dữ liệu khác nhau (ví dụ: mã giảm giá X không hiệu quả trên sản phẩm Y bán chậm, khách hàng VIP không mua sản phẩm mới). Phân tích hiệu suất từng anime (nếu có dữ liệu đủ) và loại sản phẩm trong anime đó. Đưa ra lý do hoặc xu hướng rõ ràng." },
+    { "title": "Tiêu đề Insight 1", "description": "Nhận định sâu sắc 1. Hãy tìm mối liên hệ giữa các bộ dữ liệu khác nhau (ví dụ: mã giảm giá X không hiệu quả trên sản phẩm Y bán chậm, khách hàng VIP không mua sản phẩm mới). Phân tích hiệu suất từng anime (sử dụng haravan_collection_names hoặc thông tin từ tiêu đề) và loại sản phẩm trong anime đó. Đưa ra lý do hoặc xu hướng rõ ràng." },
     { "title": "Tiêu đề Insight 2", "description": "Nhận định sâu sắc 2. Ví dụ: 'Anime [Tên Anime] đang có doanh số vượt trội, đặc biệt ở sản phẩm [Loại sản phẩm], cần đẩy mạnh marketing cho các sản phẩm liên quan'." },
-    { "title": "Tiêu đề Insight 3", "description": "Nhận định sâu sắc 3. Ví dụ: 'Khách hàng VIP [Tên khách hàng] đã chi tiêu nhiều nhưng chưa tương tác với các ưu đãi mới nhất, cần cá nhân hóa marketing'." }
+    { "title": "Tiêu đề Insight 3", "description": "Nhận định sâu sắc 3. Ví dụ: 'Khách hàng VIP [Tên khách hàng] đã chi tiêu nhiều nhưng chưa tương tác với các ưu đãi mới nhất, cần cá nhân hóa marketing'." },
+    { "title": "Insight 4: Phân tích Dòng tiền sự kiện sắp tới", "description": "Dựa trên doanh thu trung bình hiện tại và chi phí cố định/sự kiện sắp tới, phân tích khả năng đạt mục tiêu tài chính và đề xuất doanh thu cần thiết hàng ngày để bù đắp. Nếu thiếu, hãy nêu rõ rủi ro và cần tập trung vào sản phẩm nào (bán chạy/yếu) để bù đắp."}
   ],
   "action_plan": [
     { 
       "action": "Tiêu đề hành động 1", 
       "details": "Mô tả chi tiết hành động 1 (ví dụ: 'Nhập thêm 50 sản phẩm X vì tồn kho thấp và bán chạy', 'Tạo chiến dịch xả hàng cho Y').",
       "priority": "High | Medium | Low",
-      "category": "Inventory | Marketing | Financial | Customer"
+      "category": "Inventory | Marketing | Financial | Customer" 
     },
     { "action": "Tiêu đề hành động 2", "details": "Mô tả chi tiết hành động 2.", "priority": "High | Medium | Low", "category": "Inventory | Marketing | Financial | Customer" },
     { "action": "Tiêu đề hành động 3", "details": "Mô tả chi tiết hành động 3.", "priority": "High | Medium | Low", "category": "Inventory | Marketing | Financial | Customer" }
@@ -249,7 +330,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
     "value": "Giá trị giảm giá (ví dụ: 10% hoặc 20000)", 
     "type": "percentage | fixed_amount | free_shipping",
     "min_order_value": "Giá trị đơn hàng tối thiểu để áp dụng (VD: 150000)",
-    "target_product_titles": [], 
+    "target_product_titles": [], // Danh sách TÊN sản phẩm cụ thể nếu mã chỉ áp dụng cho một số sản phẩm (nếu không, để trống)
     "reason": "Giải thích lý do đề xuất mã này dựa trên hành vi khách hàng 2-3 ngày qua (ví dụ: sản phẩm bán chậm, giỏ hàng bị bỏ quên) VÀ TÍNH TOÁN RÕ RÀNG LỢI NHUẬN ĐỂ ĐẢM BẢO KHÔNG LỖ. VD: 'Mã giảm 10% trên đơn 200k sẽ giữ lợi nhuận ở 20%, kích thích mua hàng chậm. Nếu không thể duy trì 30% lợi nhuận, cần nêu rõ lợi nhuận dự kiến'."
   },
   "event_campaign_plan": {
@@ -304,9 +385,6 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 **Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] nhưng vẫn giữ nguyên cấu trúc.**
         `;
 
-        // =========================================================================
-        // THAY ĐỔI: Sử dụng geminiModelInstance
-        // =========================================================================
         const result = await geminiModelInstance.generateContent(prompt);
         const response = await result.response;
         const textResponse = response.text();
@@ -327,11 +405,4 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 
     } catch (error) {
         console.error('❌ Lỗi trong quá trình phân tích toàn diện:', error);
-        res.status(500).json({ message: 'Lỗi trong quá trình phân tích toàn diện.', error: error.message });
-    }
-}
-
-// Export hàm để có thể sử dụng trong router
-module.exports = {
-    analyzeOverallBusiness
-};
+        res.status(500).json({ message:
