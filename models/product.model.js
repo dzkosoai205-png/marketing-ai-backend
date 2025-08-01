@@ -1,6 +1,7 @@
 // ==========================================================
-// File: models/product.model.js (Hoàn chỉnh theo Tài liệu Haravan & Yêu cầu của bạn)
-// Nhiệm vụ: Định nghĩa cấu trúc của một sản phẩm, bao gồm giá vốn và các thông tin từ Haravan API.
+// File: models/product.model.js (Sửa đổi Tối thiểu)
+// Nhiệm vụ: Định nghĩa cấu trúc của một sản phẩm, bao gồm giá vốn, các thông tin từ Haravan API,
+//           và thêm trường cho ID và Tên Collections từ Haravan.
 // ==========================================================
 
 const mongoose = require('mongoose');
@@ -15,7 +16,7 @@ const ProductImageSchema = new mongoose.Schema({
   src: { type: String }, // URL của hình ảnh
   filename: { type: String },
   variant_ids: [{ type: Number }] // Các ID variant mà hình ảnh này liên quan
-}, { _id: false }); // Không tạo _id tự động cho sub-document này
+}, { _id: false }); 
 
 // --- Schema cho ProductOption (Tùy chọn sản phẩm như Size, Color) ---
 const ProductOptionSchema = new mongoose.Schema({
@@ -24,7 +25,7 @@ const ProductOptionSchema = new mongoose.Schema({
   position: { type: Number },
   product_id: { type: Number },
   values: [{ type: String }] // Các giá trị của tùy chọn, ví dụ: ["S", "M", "L"]
-}, { _id: false }); // Không tạo _id tự động cho sub-document này
+}, { _id: false }); 
 
 // --- Schema cho ProductVariant (Phiên bản sản phẩm) ---
 const VariantSchema = new mongoose.Schema({
@@ -36,12 +37,12 @@ const VariantSchema = new mongoose.Schema({
   sku: { type: String }, // Mã SKU của phiên bản
   barcode: { type: String }, // Mã vạch
   grams: { type: Number, default: 0 }, // Khối lượng sản phẩm
-  inventory_management: { type: String }, // Ví dụ: "haravan", "shopify", "manual"
-  inventory_policy: { type: String }, // Ví dụ: "deny", "continue"
+  inventory_management: { type: String }, 
+  inventory_policy: { type: String }, 
   inventory_quantity: { type: Number, default: 0 }, // Số lượng tồn kho
-  taxable: { type: Boolean, default: true }, // Có chịu thuế không
-  requires_shipping: { type: Boolean, default: true }, // Có yêu cầu vận chuyển không
-  fulfillment_service: { type: String }, // Dịch vụ fulfill (e.g., "manual")
+  taxable: { type: Boolean, default: true }, 
+  requires_shipping: { type: Boolean, default: true }, 
+  fulfillment_service: { type: String }, 
   position: { type: Number },
   option1: { type: String }, // Giá trị tùy chọn 1
   option2: { type: String }, // Giá trị tùy chọn 2
@@ -54,7 +55,7 @@ const VariantSchema = new mongoose.Schema({
   // <-- Trường quan trọng để tính lợi nhuận, KHÔNG có trực tiếp từ Haravan API -->
   // Cần được populate thủ công hoặc thông qua quá trình đồng bộ dữ liệu của bạn
   cost: { type: Number, default: 0 } 
-}, { _id: false }); // Không tạo _id tự động cho sub-document này
+}, { _id: false }); 
 
 // --- Schema cho Product (Sản phẩm chính) ---
 const ProductSchema = new mongoose.Schema({
@@ -82,18 +83,14 @@ const ProductSchema = new mongoose.Schema({
     not_allow_promotion: { type: Boolean, default: false },
 
     // ==========================================================
-    // <-- CÁC TRƯỜNG TÙY CHỈNH CỦA BẠN CHO PHÂN TÍCH AI -->
+    // <-- CÁC TRƯỜNG MỚI BẠN MUỐN THÊM CHO COLLECTIONS -->
+    // Sẽ được điền bởi quá trình đồng bộ dữ liệu của bạn
     // ==========================================================
-    // Trường này để AI nhận diện rõ ràng anime
-    // Có thể populate từ `title` trong controller hoặc lưu trực tiếp nếu bạn có phân loại rõ ràng trong DB
-    anime_genre: { type: String }, 
-    // Trường này để AI nhận diện rõ loại sản phẩm (ví dụ: "Thẻ", "Đồ bông")
-    // Cũng có thể populate từ `title` trong controller hoặc lưu trực tiếp
-    product_category: { type: String }, 
+    haravan_collection_ids: [{ type: Number }], // Các ID của Collection mà sản phẩm này thuộc về từ Haravan
+    haravan_collection_names: [{ type: String }], // Các TÊN của Collection mà sản phẩm này thuộc về từ Haravan
     
-    // Thêm cờ để theo dõi hàng mới (từ file cũ của bạn)
+    // Các trường tùy chỉnh khác của bạn (từ file gốc bạn đã có)
     is_new_product: { type: Boolean, default: false },
-    // Thời gian sản phẩm lần đầu tiên được nhập/đồng bộ vào hệ thống của bạn
     first_imported_at: { type: Date }
 
 }, {
