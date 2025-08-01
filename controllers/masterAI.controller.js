@@ -1,6 +1,6 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Hoàn thiện - Sửa lỗi ReferenceError: animeGenre CUỐI CÙNG & TỐI GIẢN)
-// Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh.
+// File: controllers/masterAI.controller.js (Đã thêm chức năng AI Chat trực tiếp)
+// Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DailyReport = require('../models/dailyReport.model'); 
@@ -31,38 +31,28 @@ if (GEMINI_API_KEY) {
 }
 
 // =========================================================================
-// SỬA LỖI & TỐI GIẢN: Hàm trợ giúp để lấy thông tin phân loại sản phẩm
-// Ưu tiên dùng haravan_collection_names.
+// Hàm trợ giúp để lấy thông tin phân loại sản phẩm (tận dụng Haravan Collections)
 // =========================================================================
 const getProductCategorization = (product) => {
     let animeGenre = 'Anime/Series Khác'; 
     let productCategory = 'Loại Khác'; 
 
-    // ƯU TIÊN: Lấy tên anime/series từ haravan_collection_names
     if (product.haravan_collection_names && product.haravan_collection_names.length > 0) {
-        // Cố gắng tìm một collection name có vẻ là tên anime/series (ví dụ: "Blue Lock", "Conan")
         const mainAnimeCollection = product.haravan_collection_names.find(colName => {
             const lowerColName = colName.toLowerCase();
-            // Lọc các collection tên chung chung để ưu tiên tên anime cụ thể
             return !(lowerColName.includes('hàng có sẵn') || lowerColName.includes('bán chạy') || lowerColName.includes('hàng mới') || lowerColName.includes('all products')); 
         });
 
         if (mainAnimeCollection) {
             animeGenre = mainAnimeCollection.trim();
         } else {
-            // Fallback: nếu không tìm thấy collection SPECIFIC anime, lấy tên collection đầu tiên
-            // có thể là tên anime hoặc một phân loại chính khác
             animeGenre = product.haravan_collection_names[0].trim();
         }
     } else {
-        // FALLBACK CUỐI CÙNG: Trích xuất từ title nếu không có haravan_collection_names
         const animeGenreMatch = product.title.match(/\[(.*?)\]/);
         animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Anime/Series Khác (từ tiêu đề)';
     }
 
-    // Xác định Product Category (Thẻ, Đồ bông, v.v.)
-    // Ưu tiên dùng product_type của Haravan nếu nó có ý nghĩa.
-    // Hoặc trích xuất từ tiêu đề nếu đã có các quy tắc định sẵn.
     const predefinedCategories = ["Thẻ", "Đồ bông", "Móc khóa", "Mô hình", "Poster", "Artbook", "Áo", "Phụ kiện", "Gói", "Tượng", "Văn phòng phẩm", "Đồ chơi"]; 
     const lowerCaseTitle = product.title.toLowerCase();
 
@@ -72,11 +62,9 @@ const getProductCategorization = (product) => {
             break;
         }
     }
-    // FALLBACK: Sử dụng product.product_type của Haravan nếu predefinedCategory không khớp
     if (productCategory === 'Loại Khác' && product.product_type) {
         productCategory = product.product_type; 
     }
-    // FALLBACK cuối cùng: Lấy từ đầu tiêu đề nếu không có gì đặc biệt
     if (productCategory === 'Loại Khác' && product.title.split(' ').length > 0) {
         productCategory = product.title.split(' ')[0].trim();
     }
@@ -98,7 +86,7 @@ async function analyzeOverallBusiness(req, res) {
             settings, 
             upcomingEvents, 
             recentOrders, 
-            allProducts, // Lấy allProducts từ DB
+            allProducts, 
             allCoupons,
             allCustomers,
             abandonedCheckouts
@@ -151,16 +139,14 @@ async function analyzeOverallBusiness(req, res) {
             .map(p => p.title)
             .slice(0, 5);
 
-        // --- Phân tích hiệu suất theo Anime và loại sản phẩm (ĐÃ SỬA LỖI PHẠM VI BIẾN & LOGIC TRÙNG LẶP) ---
-        const animePerformance = {}; 
-        const productTypePerformanceByAnime = {}; 
+        // --- Phân tích hiệu suất theo Nhóm sản phẩm / Anime và loại sản phẩm ---
+        const groupPerformance = {}; 
+        const productTypePerformanceByGroup = {}; 
 
         allProducts.forEach(product => {
             const { anime_genre, product_category } = getProductCategorization(product); 
 
             // Cập nhật thuộc tính trực tiếp vào đối tượng product (đã .lean())
-            // Điều này làm cho việc truy cập anime_genre và product_category dễ dàng hơn
-            // và tránh ReferenceError
             product.anime_genre = anime_genre;
             product.product_category = product_category;
 
@@ -179,9 +165,8 @@ async function analyzeOverallBusiness(req, res) {
                 const productRevenueRecent = quantitySoldRecent * price;
                 const productProfitRecent = quantitySoldRecent * (price - cost); 
 
-                // Sử dụng product.anime_genre và product.product_category đã gán
-                if (!animePerformance[product.anime_genre]) { 
-                    animePerformance[product.anime_genre] = { 
+                if (!groupPerformance[product.anime_genre]) { 
+                    groupPerformance[product.anime_genre] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
@@ -189,44 +174,45 @@ async function analyzeOverallBusiness(req, res) {
                         product_types_summary: {} 
                     };
                 }
-                animePerformance[product.anime_genre].total_revenue_recent += productRevenueRecent;
-                animePerformance[product.anime_genre].total_profit_recent += productProfitRecent;
-                animePerformance[product.anime_genre].total_quantity_recent += quantitySoldRecent;
-                animePerformance[product.anime_genre].total_products += 1; 
+                groupPerformance[product.anime_genre].total_revenue_recent += productRevenueRecent;
+                groupPerformance[product.anime_genre].total_profit_recent += productProfitRecent;
+                groupPerformance[product.anime_genre].total_quantity_recent += quantitySoldRecent;
+                groupPerformance[product.anime_genre].total_products += 1; 
 
-                if (!productTypePerformanceByAnime[product.anime_genre]) {
-                    productTypePerformanceByAnime[product.anime_genre] = {};
+                if (!productTypePerformanceByGroup[product.anime_genre]) {
+                    productTypePerformanceByGroup[product.anime_genre] = {};
                 }
-                if (!productTypePerformanceByAnime[product.anime_genre][product.product_category]) {
-                    productTypePerformanceByAnime[product.anime_genre][product.product_category] = { 
+                if (!productTypePerformanceByGroup[product.anime_genre][product.product_category]) {
+                    productTypePerformanceByGroup[product.anime_genre][product.product_category] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
                         product_count: 0 
                     };
                 }
-                productTypePerformanceByAnime[product.anime_genre][product.product_category].total_revenue_recent += productRevenueRecent;
-                productTypePerformanceByAnime[product.anime_genre][product.product_category].total_profit_recent += productProfitRecent;
-                productTypePerformanceByAnime[product.anime_genre][product.product_category].total_quantity_recent += quantitySoldRecent;
-                productTypePerformanceByAnime[product.anime_genre][product.product_category].product_count += 1;
+                productTypePerformanceByGroup[product.anime_genre][product.product_category].total_revenue_recent += productRevenueRecent;
+                productTypePerformanceByGroup[product.anime_genre][product.product_category].total_profit_recent += productProfitRecent;
+                productTypePerformanceByGroup[product.anime_genre][product.product_category].total_quantity_recent += quantitySoldRecent;
+                productTypePerformanceByGroup[product.anime_genre][product.product_category].product_count += 1;
 
-                if (!animePerformance[product.anime_genre].product_types_summary[product.product_category]) {
-                    animePerformance[product.anime_genre].product_types_summary[product.product_category] = { 
+                if (!groupPerformance[product.anime_genre].product_types_summary[product.product_category]) {
+                    groupPerformance[product.anime_genre].product_types_summary[product.product_category] = { 
                         total_revenue_recent: 0, 
                         total_profit_recent: 0, 
                         total_quantity_recent: 0, 
                         product_count: 0 
                     };
                 }
-                animePerformance[product.anime_genre].product_types_summary[product.product_category].total_revenue_recent += productRevenueRecent;
-                animePerformance[product.anime_genre].product_types_summary[product.product_category].total_profit_recent += productProfitRecent;
-                animePerformance[product.anime_genre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
-                animePerformance[product.anime_genre].product_types_summary[product_category].product_count += 1;
+                groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_revenue_recent += productRevenueRecent;
+                groupPerformance[product.anime_genre].product_types_summary[product.product_category].total_profit_recent += productProfitRecent;
+                groupPerformance[product.anime_genre].product_types_summary[product_category].total_quantity_recent += quantitySoldRecent;
+                groupPerformance[product.anime_genre].product_types_summary[product_category].product_count += 1;
             });
         });
 
-        // productDetailsForAI sẽ sử dụng các thuộc tính anime_genre và product_category đã được gán vào product
         const productDetailsForAI = allProducts.map(p => {
+            // Sử dụng các thuộc tính anime_genre và product_category đã được gán vào product
+            const { anime_genre, product_category } = getProductCategorization(p); // Lấy lại để đảm bảo cập nhật cho từng obj
             const productCreatedAt = new Date(p.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
             
@@ -235,8 +221,8 @@ async function analyzeOverallBusiness(req, res) {
                 return sum + (item ? item.quantity : 0);
             }, 0);
 
-            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0);
-            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0);
+            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0); 
+            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0); 
             const avgPrice = p.variants.length > 0 ? (totalVariantPrice / p.variants.length) : 0;
             const avgCost = p.variants.length > 0 ? (totalVariantCost / p.variants.length) : 0;
             
@@ -249,9 +235,9 @@ async function analyzeOverallBusiness(req, res) {
             return {
                 id: p.id,
                 title: p.title,
-                anime_genre: p.anime_genre, // <-- Dùng thuộc tính đã được gán
-                product_category: p.product_category, // <-- Dùng thuộc tính đã được gán
-                haravan_collection_names: p.haravan_collection_names || [],
+                anime_genre: anime_genre, // <-- Dùng biến đã tính toán
+                product_category: product_category, // <-- Dùng biến đã tính toán
+                haravan_collection_names: p.haravan_collection_names || [], // <-- Lấy từ Model
                 current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
                 price: avgPrice,
                 cost: avgCost,
@@ -303,9 +289,9 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
   - Các mã giảm giá đã được sử dụng HÔM NAY (số lượt): ${JSON.stringify(todaysUsedCoupons)}.
   - Top 5 sản phẩm sắp hết hàng (tồn kho <= 5, số lượng > 0): ${JSON.stringify(lowStockProducts)}.
   - Top 5 sản phẩm bán chậm (không bán được trong 30 ngày qua, còn tồn): ${JSON.stringify(slowSellers)}.
-  - **Phân tích hiệu suất theo Anime (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(animePerformance).map(([genre, data]) => ({ genre, ...data })))}.
-  - **Phân tích hiệu suất theo Loại Sản phẩm trong từng Anime (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(productTypePerformanceByAnime).map(([anime, types]) => ({ anime, types: Object.entries(types).map(([type, data]) => ({ type, ...data })) })))}.
-  - **Chi tiết tất cả sản phẩm (bao gồm anime_genre, product_category, haravan_collection_names, giá, giá vốn, ngày tạo, số lượng bán trong 30 ngày, doanh thu, lợi nhuận, tồn kho, bán chậm):** ${JSON.stringify(productDetailsForAI)}.
+  - **Phân tích hiệu suất theo Nhóm sản phẩm (từ Haravan Collections - Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(groupPerformance).map(([group, data]) => ({ group, ...data })))}.
+  - **Phân tích hiệu suất theo Loại Sản phẩm trong từng Nhóm sản phẩm (Tổng quan 30 ngày):** ${JSON.stringify(Object.entries(productTypePerformanceByGroup).map(([group, types]) => ({ group, types: Object.entries(types).map(([type, data]) => ({ type, ...data })) })))}.
+  - **Chi tiết tất cả sản phẩm (bao gồm product_group, product_category, haravan_collection_names, giá, giá vốn, ngày tạo, số lượng bán trong 30 ngày, doanh thu, lợi nhuận, tồn kho, bán chậm):** ${JSON.stringify(productDetailsForAI)}.
 
 - **Dữ liệu Khuyến mãi & Khách hàng (Tổng thể và gần đây):**
   - Tổng số mã giảm giá đang có: ${allCoupons.length}.
@@ -324,8 +310,8 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
     }
   ],
   "insights": [
-    { "title": "Tiêu đề Insight 1", "description": "Nhận định sâu sắc 1. Hãy tìm mối liên hệ giữa các bộ dữ liệu khác nhau (ví dụ: mã giảm giá X không hiệu quả trên sản phẩm Y bán chậm, khách hàng VIP không mua sản phẩm mới). Phân tích hiệu suất từng anime (sử dụng haravan_collection_names hoặc thông tin từ tiêu đề) và loại sản phẩm trong anime đó. Đưa ra lý do hoặc xu hướng rõ ràng." },
-    { "title": "Tiêu đề Insight 2", "description": "Nhận định sâu sắc 2. Ví dụ: 'Anime [Tên Anime] đang có doanh số vượt trội, đặc biệt ở sản phẩm [Loại sản phẩm], cần đẩy mạnh marketing cho các sản phẩm liên quan'." },
+    { "title": "Tiêu đề Insight 1", "description": "Nhận định sâu sắc 1. Hãy tìm mối liên hệ giữa các bộ dữ liệu khác nhau (ví dụ: mã giảm giá X không hiệu quả trên sản phẩm Y bán chậm, khách hàng VIP không mua sản phẩm mới). Phân tích hiệu suất từng nhóm sản phẩm (từ haravan_collection_names) và loại sản phẩm trong nhóm đó. Đưa ra lý do hoặc xu hướng rõ ràng." },
+    { "title": "Tiêu đề Insight 2", "description": "Nhận định sâu sắc 2. Ví dụ: 'Nhóm sản phẩm [Tên Nhóm] đang có doanh số vượt trội, đặc biệt ở sản phẩm [Loại sản phẩm], cần đẩy mạnh marketing cho các sản phẩm liên quan'." },
     { "title": "Tiêu đề Insight 3", "description": "Nhận định sâu sắc 3. Ví dụ: 'Khách hàng VIP [Tên khách hàng] đã chi tiêu nhiều nhưng chưa tương tác với các ưu đãi mới nhất, cần cá nhân hóa marketing'." },
     { "title": "Insight 4: Phân tích Dòng tiền sự kiện sắp tới", "description": "Dựa trên doanh thu trung bình hiện tại và chi phí cố định/sự kiện sắp tới, phân tích khả năng đạt mục tiêu tài chính và đề xuất doanh thu cần thiết hàng ngày để bù đắp. Nếu thiếu, hãy nêu rõ rủi ro và cần tập trung vào sản phẩm nào (bán chạy/yếu) để bù đắp."}
   ],
@@ -371,16 +357,16 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
     }
   ],
   "anime_performance_summary": { 
-    "overall_insights": "Phân tích tổng quan các anime nào đang bán tốt/yếu và lý do có thể (dựa trên sản phẩm, doanh thu, số lượng bán).",
+    "overall_insights": "Phân tích tổng quan các nhóm sản phẩm (từ haravan_collection_names) nào đang bán tốt/yếu và lý do có thể (dựa trên sản phẩm, doanh thu, số lượng bán).",
     "detailed_breakdown": [
       {
-        "anime_genre": "Tên Anime",
+        "product_group": "Tên Nhóm sản phẩm (từ Haravan Collection)",
         "performance_summary": "Tóm tắt hiệu suất (tốt, trung bình, yếu), tổng doanh thu, tổng số lượng bán gần đây.",
         "product_type_performance": [ 
           {
             "product_type": "Đồ bông | Thẻ | Mô hình",
             "performance": "Tốt | Yếu",
-            "recommendation": "Đề xuất nhập thêm / dừng nhập / đẩy hàng tồn với mã giảm giá (có tính toán lợi nhuận). Ví dụ: 'Dừng nhập đồ bông [Blue Lock] vì bán yếu dù đã tạo từ lâu và giá cao. Nên đẩy hàng tồn với mã FREESHIP'."
+            "recommendation": "Đề xuất nhập thêm / dừng nhập / đẩy hàng tồn với mã giảm giá (có tính toán lợi nhuận). Ví dụ: 'Dừng nhập đồ bông [Tên Nhóm] vì bán yếu dù đã tạo từ lâu và giá cao. Nên đẩy hàng tồn với mã FREESHIP'."
           }
         ]
       }
