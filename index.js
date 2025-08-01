@@ -1,5 +1,5 @@
 // ==========================================================
-// File: index.js (Cập nhật với Route Báo cáo)
+// File: index.js (Phiên bản Hoàn chỉnh cuối cùng)
 // ==========================================================
 
 require('dotenv').config();
@@ -7,13 +7,15 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-// Nạp các file route
+// Nạp tất cả các file route
 const couponRoutes = require('./routes/coupon.routes');
 const orderRoutes = require('./routes/order.routes');
 const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
-const reportRoutes = require('./routes/report.routes'); // <-- Dòng mới
+const aiRoutes = require('./routes/ai.routes');
+const reportRoutes = require('./routes/report.routes');
+const accountingRoutes = require('./routes/accounting.routes'); // <-- Dòng mới
 
 // Khởi tạo ứng dụng Express
 const app = express();
@@ -29,7 +31,9 @@ app.use('/api', orderRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', webhookRoutes);
-app.use('/api', reportRoutes); // <-- Dòng mới
+app.use('/api', aiRoutes);
+app.use('/api', reportRoutes);
+app.use('/api', accountingRoutes); // <-- Dòng mới
 
 // --- KẾT NỐI DATABASE VÀ KHỞI ĐỘNG SERVER ---
 const MONGO_URI = process.env.MONGO_URI;
