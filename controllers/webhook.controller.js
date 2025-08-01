@@ -1,9 +1,10 @@
 // ==========================================================
 // File: controllers/webhook.controller.js
-// Phiên bản này chứa đầy đủ cả hai chức năng xử lý webhook.
+// Phiên bản này đã được nâng cấp để tự động trừ kho.
 // ==========================================================
 
 const Order = require('../models/order.model');
+const Product = require('../models/product.model'); // <-- Dòng mới: Nạp model Product
 const AbandonedCheckout = require('../models/abandonedCheckout.model.js');
 
 /**
@@ -14,16 +15,40 @@ async function handleOrderWebhook(req, res) {
     const orderData = req.body;
     console.log(`📦 [Webhook] Nhận được dữ liệu cho đơn hàng ID: ${orderData.id}`);
 
-    // Sử dụng findOneAndUpdate với upsert: true để cập nhật hoặc tạo mới.
+    // Bước 1: Lưu hoặc cập nhật thông tin đơn hàng (như cũ)
     await Order.findOneAndUpdate(
       { id: orderData.id },
       { $set: { ...orderData, created_at_haravan: orderData.created_at } },
       { upsert: true, new: true }
     );
-
     console.log(`✅ [Webhook] Đã cập nhật/tạo mới đơn hàng ID: ${orderData.id}`);
+
+    // --- BƯỚC 2: CẬP NHẬT TỒN KHO ---
+    // Chỉ trừ kho cho các đơn hàng đã được thanh toán
+    if (orderData.financial_status === 'paid' && orderData.line_items) {
+      console.log(`💰 Đơn hàng ${orderData.id} đã thanh toán, bắt đầu trừ kho...`);
+      
+      // Tạo một mảng các thao tác cập nhật để thực hiện đồng thời
+      const inventoryUpdates = orderData.line_items.map(item => {
+        return Product.updateOne(
+          // Điều kiện tìm kiếm: Tìm đúng sản phẩm và đúng phiên bản (variant)
+          { 
+            id: item.product_id, 
+            'variants.id': item.variant_id 
+          },
+          // Thao tác cập nhật: Dùng $inc để trừ đi số lượng đã bán
+          // Dấu "-" có nghĩa là trừ đi
+          { 
+            $inc: { 'variants.$.inventory_quantity': -item.quantity } 
+          }
+        );
+      });
+
+      // Thực thi tất cả các thao tác cập nhật cùng lúc
+      await Promise.all(inventoryUpdates);
+      console.log(`✅ [Webhook] Đã cập nhật tồn kho cho ${orderData.line_items.length} sản phẩm trong đơn hàng ${orderData.id}.`);
+    }
     
-    // Luôn trả về status 200 OK để Haravan biết bạn đã nhận được webhook thành công.
     res.status(200).send('Webhook received');
 
   } catch (error) {
@@ -40,7 +65,6 @@ async function handleAbandonedCheckoutWebhook(req, res) {
     const checkoutData = req.body;
     console.log(`🛒 [Webhook] Nhận được dữ liệu giỏ hàng bị bỏ quên ID: ${checkoutData.id}`);
 
-    // Lưu hoặc cập nhật giỏ hàng vào database
     await AbandonedCheckout.findOneAndUpdate(
       { id: checkoutData.id },
       { $set: { ...checkoutData, created_at_haravan: checkoutData.created_at } },
