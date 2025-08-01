@@ -1,35 +1,54 @@
-// ==========================================================
-// File: controllers/masterAI.controller.js (Nâng cấp Toàn diện)
-// Bộ não AI được nâng cấp với prompt chuyên sâu, sử dụng toàn bộ dữ liệu.
-// ==========================================================
-const Order = require('../models/order.model');
-const Product = require('../models/product.model');
-const DailyReport = require('../models/dailyReport.model.js');
-const BusinessSettings = require('../models/businessSettings.model.js');
-const FinancialEvent = require('../models/financialEvent.model.js');
-const Coupon = require('../models/coupon.model.js');
-const Customer = require('../models/customer.model.js');
-const AbandonedCheckout = require('../models/abandonedCheckout.model.js');
-const geminiService = require('../services/gemini.service');
+// controllers/masterAI.controller.js
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const DailyReport = require('../models/DailyReport'); 
+const BusinessSettings = require('../models/BusinessSettings');
+const FinancialEvent = require('../models/FinancialEvent');
+const Order = require('../models/Order');
+const Product = require('../models/Product');
+const Coupon = require('../models/Coupon');
+const Customer = require('../models/Customer');
+const AbandonedCheckout = require('../models/AbandonedCheckout');
 
-// ... (các import models, GoogleGenerativeAI, và khởi tạo model) ...
+// Lấy API Key từ biến môi trường
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// =========================================================================
+// THAY ĐỔI CÁCH KHỞI TẠO MODEL ĐỂ TRÁNH ReferenceError
+// =========================================================================
+let geminiModelInstance = null; // Khai báo và khởi tạo giá trị mặc định là null
+
+if (GEMINI_API_KEY) {
+    try {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
+        console.log("✅ Gemini model 'gemini-2.0-flash' đã được khởi tạo thành công.");
+    } catch (error) {
+        console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
+        console.warn("Cảnh báo: Tính năng AI sẽ không hoạt động do lỗi khởi tạo model.");
+        // Giữ geminiModelInstance là null để hàm analyzeOverallBusiness có thể xử lý
+    }
+} else {
+    console.warn("Cảnh báo: Biến môi trường GEMINI_API_KEY chưa được thiết lập. Tính năng AI sẽ không hoạt động.");
+}
 
 async function analyzeOverallBusiness(req, res) {
     console.log('🤖 [Master AI] Nhận được yêu cầu phân tích toàn diện...');
     
-    if (!model) {
-        return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY." });
+    // =========================================================================
+    // SỬ DỤNG geminiModelInstance THAY VÌ model VÀ KIỂM TRA TÍNH HỢP LỆ
+    // =========================================================================
+    if (!geminiModelInstance) { // <-- Lỗi của bạn ở đây, giờ đã sửa
+        return res.status(503).json({ message: "Dịch vụ AI không khả dụng. Vui lòng kiểm tra cấu hình GEMINI_API_KEY và logs khởi tạo model." });
     }
 
     try {
-        // --- BƯỚC 1: Lấy TOÀN BỘ dữ liệu cần thiết từ Database ---
-        // Đảm bảo các queries này lấy đủ dữ liệu bạn cần (ví dụ: product_type, anime_genre trong Product)
+        // ... (Bước 1: Lấy dữ liệu từ Database - Giữ nguyên) ...
         const [
             latestReport, 
             settings, 
             upcomingEvents, 
-            recentOrders, // Đơn hàng 30 ngày gần đây
-            allProducts, // Tất cả sản phẩm
+            recentOrders,
+            allProducts,
             allCoupons,
             allCustomers,
             abandonedCheckouts
@@ -37,8 +56,8 @@ async function analyzeOverallBusiness(req, res) {
             DailyReport.findOne().sort({ report_date: -1 }),
             BusinessSettings.findOne({ shop_id: 'main_settings' }),
             FinancialEvent.find({ due_date: { $gte: new Date() }, is_paid: false }).sort({ due_date: 1 }),
-            Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }),
-            Product.find({}).lean(), // <-- THÊM .lean() để lấy object thuần, dễ xử lý hơn và nhẹ hơn
+            Order.find({ created_at_haravan: { $gte: new Date(new Date() - 30*24*60*60*1000) } }).lean(), // Thêm .lean()
+            Product.find({}).lean(), 
             Coupon.find({}).lean(),
             Customer.find({}).sort({ total_spent: -1 }).lean(),
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date() - 7*24*60*60*1000) } }).lean()
@@ -48,15 +67,14 @@ async function analyzeOverallBusiness(req, res) {
             return res.status(404).json({ message: 'Không tìm thấy báo cáo nào để phân tích. Vui lòng nhập báo cáo cuối ngày trước.' });
         }
 
-        // --- BƯỚC 2: Xử lý và tổng hợp dữ liệu chi tiết cho prompt ---
+        // ... (Bước 2: Xử lý và tổng hợp dữ liệu chi tiết cho prompt - Giữ nguyên) ...
         const reportDate = new Date(latestReport.report_date);
         const nextDay = new Date(reportDate);
         nextDay.setDate(reportDate.getDate() + 1);
         const todaysOrders = recentOrders.filter(o => new Date(o.created_at_haravan) >= reportDate && new Date(o.created_at_haravan) < nextDay);
         
-        // Tính toán doanh thu trung bình tháng (để so sánh với chi phí sắp tới)
         const totalRecentRevenue = recentOrders.reduce((sum, order) => sum + order.total_price, 0);
-        const daysInPeriod = 30; // Giả sử 30 ngày cho "recentOrders"
+        const daysInPeriod = 30; 
         const averageDailyRevenue = totalRecentRevenue / daysInPeriod;
 
         const todaysTopProducts = {};
@@ -79,30 +97,26 @@ async function analyzeOverallBusiness(req, res) {
             
         const soldProductIds = new Set(recentOrders.flatMap(o => o.line_items.map(li => li.product_id)));
         const slowSellers = allProducts
-            .filter(p => !soldProductIds.has(p.id) && p.variants.some(v => v.inventory_quantity > 0)) // Chỉ lấy sản phẩm có hàng tồn
+            .filter(p => !soldProductIds.has(p.id) && p.variants.some(v => v.inventory_quantity > 0))
             .map(p => p.title)
             .slice(0, 5);
 
-        // --- Phân tích theo Anime và loại sản phẩm ---
-        const animePerformance = {}; // { "Blue Lock": { total_revenue: 1000, total_quantity: 10, product_types: { "Thẻ": 5, "Đồ bông": 2 } } }
-        const productTypePerformanceByAnime = {}; // { "Blue Lock": { "Thẻ": { total_revenue: 500, total_quantity: 5 } } }
+        const animePerformance = {}; 
+        const productTypePerformanceByAnime = {}; 
 
         allProducts.forEach(product => {
-            const animeGenreMatch = product.title.match(/\[(.*?)\]/); // Tìm "[Tên Anime]"
+            const animeGenreMatch = product.title.match(/\[(.*?)\]/);
             const animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Không rõ Anime';
             const productTitleParts = product.title.split(' ');
-            const productType = productTitleParts.length > 1 ? productTitleParts[0] : 'Không rõ loại'; // Lấy từ đầu tên sản phẩm
+            const productType = productTitleParts.length > 1 ? productTitleParts[0] : 'Không rõ loại'; 
 
-            // Tính số ngày từ lúc tạo sản phẩm
             const productCreatedAt = new Date(product.created_at_haravan);
             const daysSinceCreation = Math.ceil((new Date() - productCreatedAt) / (1000 * 60 * 60 * 24));
             
             product.variants.forEach(variant => {
-                // Giả định product.price là giá bán, product.cost là giá gốc (nếu có)
                 const price = variant.price || 0;
                 const cost = variant.cost || 0; // Cần thêm trường 'cost' vào Product Variant nếu có
 
-                // Tính toán số lượng bán ra của sản phẩm này trong 30 ngày qua
                 const quantitySoldRecent = recentOrders.reduce((sum, order) => {
                     const item = order.line_items.find(li => li.variant_id === variant.id);
                     return sum + (item ? item.quantity : 0);
@@ -148,7 +162,7 @@ async function analyzeOverallBusiness(req, res) {
                 return sum + (item ? item.quantity : 0);
             }, 0);
             const avgPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0) / p.variants.length;
-            const totalRevenueAllTime = totalQuantitySoldAllTime * avgPrice; // Đơn giản hóa
+            const totalRevenueAllTime = totalQuantitySoldAllTime * avgPrice; 
             const isLowStock = lowStockProducts.includes(p.title);
             const isSlowSeller = slowSellers.includes(p.title);
 
@@ -167,7 +181,6 @@ async function analyzeOverallBusiness(req, res) {
             };
         });
 
-        // Tổng hợp dữ liệu khách hàng cho AI
         const customerDetailsForAI = allCustomers.map(c => ({
             id: c.id,
             name: `${c.first_name || ''} ${c.last_name || ''}`.trim(),
@@ -187,7 +200,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 **Dữ liệu cung cấp:**
 - **Báo cáo tài chính & kinh doanh (Hôm nay ${latestReport.report_date.toLocaleDateString('vi-VN')}):**
   - Doanh thu ${latestReport.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${latestReport.total_profit.toLocaleString('vi-VN')}đ.
-  - Chi phí cố định tháng: ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
+  - Chi phí cố định tháng (ước tính): ${((settings?.monthly_rent_cost || 0) + (settings?.monthly_staff_cost || 0) + (settings?.monthly_marketing_cost || 0) + (settings?.monthly_other_cost || 0)).toLocaleString('vi-VN')}đ.
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Doanh thu trung bình hàng ngày (30 ngày qua): ${averageDailyRevenue.toLocaleString('vi-VN')}đ.
   - Sự kiện chi tiền lớn sắp tới: ${JSON.stringify(upcomingEvents.map(e => ({name: e.event_name, amount: e.amount, due_date: e.due_date.toLocaleDateString('vi-VN'), days_left: Math.ceil((new Date(e.due_date) - new Date()) / (1000 * 60 * 60 * 24)) })))}.
@@ -213,7 +226,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 {
   "alerts": [
     { 
-      "type": "warning | info | critical", // Thêm 'critical'
+      "type": "warning | info | critical", 
       "message": "Cảnh báo quan trọng nhất về tình hình kinh doanh, dòng tiền, tồn kho, doanh số. Ví dụ: 'Dòng tiền có thể gặp vấn đề nếu không đạt doanh thu X để bù đặp chi phí sắp tới Y.' Tối đa 2 cảnh báo." 
     }
   ],
@@ -227,17 +240,17 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       "action": "Tiêu đề hành động 1", 
       "details": "Mô tả chi tiết hành động 1 (ví dụ: 'Nhập thêm 50 sản phẩm X vì tồn kho thấp và bán chạy', 'Tạo chiến dịch xả hàng cho Y').",
       "priority": "High | Medium | Low",
-      "category": "Inventory | Marketing | Financial | Customer" // Phân loại hành động
+      "category": "Inventory | Marketing | Financial | Customer"
     },
     { "action": "Tiêu đề hành động 2", "details": "Mô tả chi tiết hành động 2.", "priority": "High | Medium | Low", "category": "Inventory | Marketing | Financial | Customer" },
     { "action": "Tiêu đề hành động 3", "details": "Mô tả chi tiết hành động 3.", "priority": "High | Medium | Low", "category": "Inventory | Marketing | Financial | Customer" }
   ],
   "daily_coupon_suggestion": {
     "code": "MA_MOI_HANG_NGAY",
-    "value": "Giá trị giảm giá (ví dụ: 10% hoặc 20000)", // Không có đơn vị, chỉ là số
+    "value": "Giá trị giảm giá (ví dụ: 10% hoặc 20000)", 
     "type": "percentage | fixed_amount | free_shipping",
     "min_order_value": "Giá trị đơn hàng tối thiểu để áp dụng (VD: 150000)",
-    "target_product_titles": [], // Danh sách TÊN sản phẩm cụ thể nếu mã chỉ áp dụng cho một số sản phẩm (nếu không, để trống)
+    "target_product_titles": [], 
     "reason": "Giải thích lý do đề xuất mã này dựa trên hành vi khách hàng 2-3 ngày qua (ví dụ: sản phẩm bán chậm, giỏ hàng bị bỏ quên) VÀ TÍNH TOÁN RÕ RÀNG LỢI NHUẬN ĐỂ ĐẢM BẢO KHÔNG LỖ. VD: 'Mã giảm 10% trên đơn 200k sẽ giữ lợi nhuận ở 20%, kích thích mua hàng chậm. Nếu không thể duy trì 30% lợi nhuận, cần nêu rõ lợi nhuận dự kiến'."
   },
   "event_campaign_plan": {
@@ -250,7 +263,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       "value": "Giá trị giảm giá",
       "type": "percentage | fixed_amount | free_shipping",
       "min_order_value": "Giá trị đơn hàng tối thiểu",
-      "target_customer_segments": [], // Phân khúc khách hàng mục tiêu cho mã này
+      "target_customer_segments": [], 
       "reason": "Lý do đề xuất mã này dựa trên hành vi khách hàng 1 tháng gần nhất và mục tiêu lợi nhuận (30% trung bình). Đảm bảo mã không làm lỗ đơn hàng."
     },
     "promotion_channels": [ "Email", "Facebook Ads", "Website Banner" ],
@@ -263,13 +276,13 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       "body_snippet": "Đoạn nội dung chính của email, bao gồm lời nhắc, mã giảm giá đề xuất (ví dụ: MABOHANG, giảm X% hoặc Y VND), và kêu gọi hành động. Nhấn mạnh ưu đãi để kích thích mua hàng. Đảm bảo mã không làm lỗ đơn hàng với biên lợi nhuận 30%."
     }
   ],
-  "anime_performance_summary": { // THÊM PHẦN NÀY
+  "anime_performance_summary": { 
     "overall_insights": "Phân tích tổng quan các anime nào đang bán tốt/yếu và lý do có thể (dựa trên sản phẩm, doanh thu, số lượng bán).",
     "detailed_breakdown": [
       {
         "anime_genre": "Tên Anime",
         "performance_summary": "Tóm tắt hiệu suất (tốt, trung bình, yếu), tổng doanh thu, tổng số lượng bán gần đây.",
-        "product_type_performance": [ // Phân tích từng loại sản phẩm trong anime
+        "product_type_performance": [ 
           {
             "product_type": "Đồ bông | Thẻ | Mô hình",
             "performance": "Tốt | Yếu",
@@ -279,7 +292,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       }
     ]
   },
-  "customer_loyalty_strategies": [ // THÊM PHẦN NÀY
+  "customer_loyalty_strategies": [ 
     {
       "strategy_name": "Tên chiến lược (ví dụ: Gói quà tặng VIP, Ưu đãi sinh nhật)",
       "target_customers_segment": "Phân khúc khách hàng mục tiêu (ví dụ: Top 10 khách hàng chi tiêu nhiều nhất)",
@@ -292,18 +305,34 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 **Hãy đảm bảo toàn bộ phản hồi là một JSON hợp lệ và tuân thủ cấu trúc trên. Không thêm bất kỳ văn bản giải thích nào bên ngoài khối JSON. Nếu có dữ liệu thiếu, hãy điền các trường là N/A hoặc [] nhưng vẫn giữ nguyên cấu trúc.**
         `;
 
-        // ... (tiếp tục hàm analyzeOverallBusiness) ...
-    const analysisResultText = await geminiService.getAnalysisFromAI(prompt);
-    const jsonString = analysisResultText.replace(/```json\n|```/g, '').trim();
-    const analysisResultJson = JSON.parse(jsonString);
-    res.status(200).json(analysisResultJson);
+        // =========================================================================
+        // THAY ĐỔI: Sử dụng geminiModelInstance
+        // =========================================================================
+        const result = await geminiModelInstance.generateContent(prompt);
+        const response = await result.response;
+        const textResponse = response.text();
 
-  } catch (error) {
-    console.error('❌ Lỗi trong quá trình phân tích toàn diện:', error);
-    res.status(500).json({ message: 'Lỗi trong quá trình phân tích toàn diện.', error: error.message });
-  }
+        console.log('Phản hồi RAW từ Gemini:', textResponse); 
+
+        let analysisResultJson;
+        try {
+            const jsonString = textResponse.replace(/```json\n|```/g, '').trim();
+            analysisResultJson = JSON.parse(jsonString);
+        } catch (parseError) {
+            console.error('❌ Lỗi parsing JSON từ Gemini:', parseError.message);
+            console.error('Phản hồi Gemini không phải JSON hợp lệ:', textResponse);
+            return res.status(500).json({ message: 'Lỗi parsing phản hồi AI. Vui lòng kiểm tra định dạng output của AI.', rawResponse: textResponse });
+        }
+
+        res.status(200).json(analysisResultJson);
+
+    } catch (error) {
+        console.error('❌ Lỗi trong quá trình phân tích toàn diện:', error);
+        res.status(500).json({ message: 'Lỗi trong quá trình phân tích toàn diện.', error: error.message });
+    }
 }
 
+// Export hàm để có thể sử dụng trong router
 module.exports = {
-  analyzeOverallBusiness
+    analyzeOverallBusiness
 };
