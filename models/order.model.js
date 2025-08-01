@@ -1,24 +1,28 @@
 // ==========================================================
 // File: models/order.model.js
-// Nhiệm vụ: Định nghĩa cấu trúc của một đơn hàng trong MongoDB.
-// Phiên bản này đã sửa lỗi CastError.
+// Phiên bản này đã được nâng cấp để theo dõi trạng thái hủy/hoàn trả.
 // ==========================================================
 
 const mongoose = require('mongoose');
 
 const OrderSchema = new mongoose.Schema({
-    id: { type: Number, required: true, unique: true }, // ID từ Haravan
+    id: { type: Number, required: true, unique: true },
     email: { type: String },
     phone: { type: String },
-    customer_id: { type: Number },
+    
+    customer: {
+        id: Number,
+        first_name: String,
+        last_name: String,
+        email: String,
+        phone: String
+    },
+
     total_price: { type: Number, required: true },
     total_discounts: { type: Number, required: true },
-    financial_status: { type: String },
+    financial_status: { type: String }, // 'paid', 'pending', 'refunded'
     fulfillment_status: { type: String },
     
-    // --- LỖI ĐÃ ĐƯỢC SỬA Ở ĐÂY ---
-    // Thay đổi kiểu dữ liệu để chấp nhận cả các định dạng không đồng nhất từ Haravan
-    // Điều này giúp ứng dụng không bị crash khi gặp dữ liệu lỗi.
     discount_codes: [mongoose.Schema.Types.Mixed],
 
     line_items: [{
@@ -29,7 +33,15 @@ const OrderSchema = new mongoose.Schema({
         price: Number
     }],
     
-    created_at_haravan: { type: Date } 
+    created_at_haravan: { type: Date },
+    cancelled_at: { type: Date, default: null }, // <-- Thêm trường ngày hủy
+
+    inventory_deducted: { type: Boolean, default: false },
+
+    // --- CÁC TRƯỜNG MỚI ĐỂ THEO DÕI ---
+    is_cancelled: { type: Boolean, default: false },
+    is_refunded: { type: Boolean, default: false }
+
 }, {
     timestamps: true
 });
