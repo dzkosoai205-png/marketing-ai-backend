@@ -6,6 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const masterAIController = require('../controllers/masterAI.controller'); // Sử dụng lại controller AI
+const reportController = require('../controllers/report.controller'); 
+
 
 // Route để lưu báo cáo cuối ngày (đã có)
 router.post('/reports/daily', async (req, res) => {
@@ -38,5 +40,6 @@ router.post('/reports/daily', async (req, res) => {
 // THÊM: Route mới để lấy báo cáo theo ngày
 // ==========================================================
 router.get('/reports/daily-by-date', masterAIController.getDailyReportByDate); // Trỏ đến hàm mới trong masterAI.controller.js
+
 
 module.exports = router;
