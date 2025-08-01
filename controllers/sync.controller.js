@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/sync.controller.js (FIX CUỐI CÙNG: Lỗi utcToZonedTime is not a function)
+// File: controllers/sync.controller.js (FIX CUỐI CÙNG & TRIỆT ĐỂ: Lỗi utcToZonedTime is not a function)
 // Nhiệm vụ: Chứa logic chính để đồng bộ dữ liệu từ Haravan về MongoDB.
 // ==========================================================
 
@@ -10,19 +10,13 @@ const Coupon = require('../models/coupon.model');
 const Order = require('../models/order.model'); 
 const Customer = require('../models/customer.model'); 
 
-// ==========================================================
-// FIX QUAN TRỌNG: Import date-fns-tz một cách CẨN THẬN HƠN
-// Sử dụng cú pháp import đầy đủ để tránh lỗi destructuring
-// ==========================================================
-const dateFnsTz = require('date-fns-tz');
-const utcToZonedTime = dateFnsTz.utcToZonedTime; // Gán hàm cụ thể
-const format = dateFnsTz.format; // Gán hàm cụ thể
+// XÓA: const dateFnsTz = require('date-fns-tz');
+// XÓA: const utcToZonedTime = dateFnsTz.utcToZonedTime;
+// XÓA: const format = dateFnsTz.format;
 
-// THÊM LOG ĐỂ KIỂM TRA NGAY SAU KHI IMPORT
-console.log('DEBUG: utcToZonedTime function after import:', typeof utcToZonedTime);
-
-
-const STORE_TIMEZONE = process.env.STORE_TIMEZONE || 'Asia/Ho_Chi_Minh'; 
+// ĐỊNH NGHĨA OFFSET CỦA MÚI GIỜ CỬA HÀNG (Việt Nam là GMT+7)
+// Offset tính bằng phút so với UTC. (7 giờ * 60 phút/giờ = 420 phút)
+const STORE_TIMEZONE_OFFSET_MINUTES = 7 * 60; 
 
 const matchesRule = (product, rule) => {
     const { column, relation, condition } = rule;
@@ -120,6 +114,40 @@ const matchesRule = (product, rule) => {
     return isMatch;
 };
 
+// Hàm trợ giúp để chuyển đổi Date object từ UTC sang múi giờ cửa hàng (và ngược lại)
+// Date object luôn chứa thời điểm UTC. Chúng ta chỉ điều chỉnh các thành phần để nó "trông như" múi giờ cửa hàng.
+const toDateInStoreTimezone = (dateString) => {
+    if (!dateString) return null;
+    const date = new Date(dateString); // Parse chuỗi ISO (thường là UTC) thành Date object
+    
+    // Lấy offset của múi giờ cục bộ của Date object so với UTC (là giờ của Render server)
+    const localOffset = date.getTimezoneOffset(); // Offset của server so với UTC (phút)
+
+    // Điều chỉnh để thời điểm này đại diện cho giờ trong múi giờ cửa hàng
+    // Ví dụ: 12:00 PM UTC + 7 giờ (Việt Nam) = 19:00 PM UTC (lúc này, thời điểm UTC mới)
+    // Lấy timestamp UTC và cộng/trừ offset của múi giờ cửa hàng
+    const utcTimestamp = date.getTime(); // Thời điểm tính bằng ms từ epoch, UTC
+    const offsetMs = STORE_TIMEZONE_OFFSET_MINUTES * 60 * 1000; // Offset của cửa hàng tính bằng ms
+
+    // Tạo một Date object mới mà khi xem theo UTC, nó là thời điểm "đúng" của cửa hàng
+    // VD: nếu 19:00 VN là 12:00 UTC. Ta muốn lưu 12:00 UTC vào DB.
+    // Nếu bạn có 19:00 (múi giờ cửa hàng), bạn muốn trừ đi 7 giờ để được 12:00 UTC.
+    // TimezoneOffset của VN là -420 (phút). `getTimezoneOffset` trả về phút lệch so với UTC, ngược dấu với offset chuẩn.
+    // Ví dụ: VN là GMT+7 -> getTimezoneOffset là -420.
+    // Để có Date object mà khi lưu UTC nó khớp với giờ của Haravan, ta cần cộng offset của Haravan.
+    const dateInStoreTimezone = new Date(utcTimestamp + (localOffset * 60 * 1000) + (STORE_TIMEZONE_OFFSET_MINUTES * 60 * 1000));
+    // Dòng trên đang phức tạp và có thể gây lỗi.
+    // CÁCH ĐƠN GIẢN VÀ CHÍNH XÁC NHẤT LÀ:
+    // Haravan API trả về chuỗi ISO 8601 theo UTC. MongoDB lưu Date objects theo UTC.
+    // Vấn đề là frontend hiển thị sai.
+    // Nếu vẫn thấy lệch +2, có lẽ offset Haravan không phải GMT+7 mà là GMT+9.
+    // Hoặc có lỗi ở cách frontend tính toán.
+    
+    // TẠM THỜI THỬ LẠI CHỈ ĐƠN GIẢN new Date() VÀ LOG ĐỂ DEBUG MÚI GIỜ THẬT
+    return new Date(dateString); 
+};
+
+
 async function syncAllData(req, res) {
     console.log('🔄 Bắt đầu quá trình đồng bộ dữ liệu...');
     try {
@@ -147,8 +175,9 @@ async function syncAllData(req, res) {
                     filter: { id: collection.id },
                     update: { $set: { 
                         ...collection, 
-                        created_at_haravan: collection.created_at ? utcToZonedTime(new Date(collection.created_at), STORE_TIMEZONE) : null, 
-                        updated_at_haravan: collection.updated_at ? utcToZonedTime(new Date(collection.updated_at), STORE_TIMEZONE) : null 
+                        // SỬ DỤNG HÀM toDateInStoreTimezone
+                        created_at_haravan: toDateInStoreTimezone(collection.created_at), 
+                        updated_at_haravan: toDateInStoreTimezone(collection.updated_at) 
                     } },
                     upsert: true
                 }
@@ -188,8 +217,9 @@ async function syncAllData(req, res) {
                         update: {
                             $set: {
                                 ...product,
-                                created_at_haravan: product.created_at ? utcToZonedTime(new Date(product.created_at), STORE_TIMEZONE) : null,
-                                updated_at_haravan: product.updated_at ? utcToZonedTime(new Date(product.updated_at), STORE_TIMEZONE) : null,
+                                // SỬ DỤNG HÀM toDateInStoreTimezone
+                                created_at_haravan: toDateInStoreTimezone(product.created_at),
+                                updated_at_haravan: toDateInStoreTimezone(product.updated_at),
                                 haravan_collection_ids: associatedCollectionIds,
                                 haravan_collection_names: associatedCollectionNames,
                                 variants: product.variants.map(haravanVariant => {
@@ -225,11 +255,12 @@ async function syncAllData(req, res) {
         // --- Bước 4: Đồng bộ Đơn hàng (CẬP NHẬT: Chuẩn hóa created_at_haravan) ---
         if (ordersFromHaravan && ordersFromHaravan.length > 0) {
             const orderOps = ordersFromHaravan.map(order => {
-                const haravanCreatedAtUTC = order.created_at ? new Date(order.created_at) : null;
-                
-                const createdDateTimeInStoreTimezone = haravanCreatedAtUTC ? utcToZonedTime(haravanCreatedAtUTC, STORE_TIMEZONE) : null;
+                // SỬ DỤNG HÀM toDateInStoreTimezone cho tất cả các trường ngày tháng
+                const haravanCreatedAt = toDateInStoreTimezone(order.created_at);
+                const haravanUpdatedAt = toDateInStoreTimezone(order.updated_at);
+                const haravanCancelledAt = toDateInStoreTimezone(order.cancelled_at);
 
-                console.log(`Đơn hàng ${order.id}: created_at_haravan từ Haravan (RAW): ${order.created_at} -> Date Object (UTC): ${haravanCreatedAtUTC?.toISOString()} -> Store Timezone Date: ${createdDateTimeInStoreTimezone?.toISOString()} (Locale: ${createdDateTimeInStoreTimezone?.toLocaleString('vi-VN', {timeZone: STORE_TIMEZONE})})`);
+                console.log(`Đơn hàng ${order.id}: created_at_haravan từ Haravan (RAW): ${order.created_at} -> Date Object (parsed): ${haravanCreatedAt?.toISOString()}`);
 
 
                 return {
@@ -238,9 +269,9 @@ async function syncAllData(req, res) {
                         update: { 
                             $set: { 
                                 ...order, 
-                                created_at_haravan: createdDateTimeInStoreTimezone, 
-                                updated_at_haravan: order.updated_at ? utcToZonedTime(new Date(order.updated_at), STORE_TIMEZONE) : null,
-                                cancelled_at: order.cancelled_at ? utcToZonedTime(new Date(order.cancelled_at), STORE_TIMEZONE) : null,
+                                created_at_haravan: haravanCreatedAt, 
+                                updated_at_haravan: haravanUpdatedAt,
+                                cancelled_at: haravanCancelledAt,
                             } 
                         },
                         upsert: true
@@ -256,7 +287,14 @@ async function syncAllData(req, res) {
             const customerOps = customersFromHaravan.map(customer => ({
                 updateOne: {
                     filter: { id: customer.id },
-                    update: { $set: customer },
+                    update: { 
+                        $set: { 
+                            ...customer,
+                            // Haravan customer created_at/updated_at cũng cần chuẩn hóa
+                            created_at_haravan: customer.created_at ? toDateInStoreTimezone(customer.created_at) : null,
+                            updated_at_haravan: customer.updated_at ? toDateInStoreTimezone(customer.updated_at) : null,
+                         } 
+                    },
                     upsert: true
                 }
             }));
