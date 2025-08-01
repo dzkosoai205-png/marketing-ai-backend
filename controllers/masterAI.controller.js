@@ -1,3 +1,17 @@
+// ==========================================================
+// File: controllers/masterAI.controller.js (Nâng cấp Toàn diện)
+// Bộ não AI được nâng cấp với prompt chuyên sâu, sử dụng toàn bộ dữ liệu.
+// ==========================================================
+const Order = require('../models/order.model');
+const Product = require('../models/product.model');
+const DailyReport = require('../models/dailyReport.model.js');
+const BusinessSettings = require('../models/businessSettings.model.js');
+const FinancialEvent = require('../models/financialEvent.model.js');
+const Coupon = require('../models/coupon.model.js');
+const Customer = require('../models/customer.model.js');
+const AbandonedCheckout = require('../models/abandonedCheckout.model.js');
+const geminiService = require('../services/gemini.service');
+
 async function analyzeOverallBusiness(req, res) {
   console.log('🤖 [Master AI] Nhận được yêu cầu phân tích toàn diện...');
   try {
@@ -105,3 +119,7 @@ async function analyzeOverallBusiness(req, res) {
     res.status(500).json({ message: 'Lỗi trong quá trình phân tích toàn diện.', error: error.message });
   }
 }
+
+module.exports = {
+  analyzeOverallBusiness
+};
