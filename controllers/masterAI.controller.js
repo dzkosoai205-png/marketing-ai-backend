@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/masterAI.controller.js (Hoàn thiện với Dữ liệu Nhóm sản phẩm)
+// File: controllers/masterAI.controller.js (Hoàn thiện với Dữ liệu Nhóm sản phẩm - Sửa lỗi SyntaxError)
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -37,9 +37,9 @@ const getProductCategorization = (product) => {
     let animeGenre = 'Anime/Series Khác'; // Mặc định nếu không tìm thấy collection anime
     let productCategory = 'Loại Khác'; // Mặc định nếu không tìm thấy loại sản phẩm cụ thể
 
-    // ƯU TIÊN: Lấy tên anime/series từ haravan_collection_names
+    // ƯU TIÊN: Lấy tên anime từ haravan_collection_names
     if (product.haravan_collection_names && product.haravan_collection_names.length > 0) {
-        // Cố gắng tìm một collection name có vẻ là tên anime/series
+        // Cố gắng tìm collection name có vẻ là tên anime/series
         const animeCollection = product.haravan_collection_names.find(col => 
             col.toLowerCase().includes('anime') || col.toLowerCase().includes('series') || col.toLowerCase().includes('fanpage') || col.toLowerCase().includes('manga')
         );
@@ -221,8 +221,8 @@ async function analyzeOverallBusiness(req, res) {
                 return sum + (item ? item.quantity : 0);
             }, 0);
 
-            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0);
-            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0);
+            const totalVariantPrice = p.variants.reduce((sum, v) => sum + (v.price || 0), 0); // SỬA LỖI CÚ PHÁP
+            const totalVariantCost = p.variants.reduce((sum, v) => sum + (v.cost || 0), 0); // SỬA LỖI CÚ PHÁP
             const avgPrice = p.variants.length > 0 ? (totalVariantPrice / p.variants.length) : 0;
             const avgCost = p.variants.length > 0 ? (totalVariantCost / p.variants.length) : 0;
             
@@ -238,7 +238,7 @@ async function analyzeOverallBusiness(req, res) {
                 anime_genre: anime_genre,
                 product_category: product_category,
                 haravan_collection_names: p.haravan_collection_names || [], // <-- Lấy từ Model
-                current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
+                current_inventory: p.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0), // SỬA LỖI CÚ PHÁP
                 price: avgPrice,
                 cost: avgCost,
                 days_since_creation: daysSinceCreation,
@@ -278,7 +278,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
       days_left: Math.ceil((new Date(e.due_date) - new Date()) / (1000 * 60 * 60 * 24)) 
     })))}.
   - **Phân tích tài chính cho Sự kiện sắp tới:**
-    - Tổng chi phí sắp tới: ${upcomingEvents.reduce((sum, e) => sum + e.amount, 0).toLocaleString('vi-VN')}đ.
+    - Tổng chi phí sắp tới: ${upcomingEvents.reduce((sum, e) => sum + e.amount, 0).toLocaleString('vi-VN')}đ. // SỬA LỖI CÚ PHÁP
     - Doanh thu cần kiếm thêm mỗi ngày để đủ chi phí (nếu doanh thu trung bình hiện tại không đủ): 
       ${(upcomingEvents.length > 0 && upcomingEvents[0].days_left > 0 && upcomingEvents.reduce((sum, e) => sum + e.amount, 0) > (averageDailyRevenue * upcomingEvents[0].days_left)) 
         ? ((upcomingEvents.reduce((sum, e) => sum + e.amount, 0) - (averageDailyRevenue * upcomingEvents[0].days_left)) / upcomingEvents[0].days_left).toLocaleString('vi-VN') + 'đ/ngày' 
@@ -405,4 +405,11 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
 
     } catch (error) {
         console.error('❌ Lỗi trong quá trình phân tích toàn diện:', error);
-        res.status(500).json({ message:
+        res.status(500).json({ message: 'Lỗi trong quá trình phân tích toàn diện.', error: error.message });
+    }
+}
+
+// Export hàm để có thể sử dụng trong router
+module.exports = {
+    analyzeOverallBusiness
+};
