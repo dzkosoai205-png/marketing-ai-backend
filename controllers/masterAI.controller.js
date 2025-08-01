@@ -434,7 +434,7 @@ Là một Giám đốc Vận hành (COO) và Giám đốc Marketing (CMO) cấp 
         }
 
         await DailyReport.findOneAndUpdate(
-            { report_date: queryReportDate }, 
+            { report_date: queryDateForDailyReport }, 
             { $set: { ai_analysis_results: analysisResultJson } }, 
             { upsert: true, new: true, setDefaultsOnInsert: true } 
         );
@@ -552,3 +552,4 @@ module.exports = {
     getDailyReportByDate, 
     handleChat 
 };
+
