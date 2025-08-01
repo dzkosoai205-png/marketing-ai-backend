@@ -28,7 +28,7 @@ async function analyzeOverallBusiness(req, res) {
     ]);
 
     if (!latestReport) {
-      return res.status(404).json({ message: 'Không tìm thấy báo cáo nào để phân tích.' });
+      return res.status(404).json({ message: 'Không tìm thấy báo cáo nào để phân tích. Vui lòng nhập báo cáo cuối ngày trước.' });
     }
 
     // Xử lý dữ liệu tồn kho
