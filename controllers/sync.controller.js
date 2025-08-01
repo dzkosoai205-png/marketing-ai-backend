@@ -1,5 +1,5 @@
 // ==========================================================
-// File: controllers/sync.controller.js (ĐÃ SỬA LỖI CUỐI CÙNG: Bỏ getCollects cho Smart Collections)
+// File: controllers/sync.controller.js (FIX CUỐI CÙNG: Lỗi utcToZonedTime is not a function)
 // Nhiệm vụ: Chứa logic chính để đồng bộ dữ liệu từ Haravan về MongoDB.
 // ==========================================================
 
@@ -10,9 +10,19 @@ const Coupon = require('../models/coupon.model');
 const Order = require('../models/order.model'); 
 const Customer = require('../models/customer.model'); 
 
-const { utcToZonedTime, format } = require('date-fns-tz'); 
+// ==========================================================
+// FIX QUAN TRỌNG: Import date-fns-tz một cách CẨN THẬN HƠN
+// Sử dụng cú pháp import đầy đủ để tránh lỗi destructuring
+// ==========================================================
+const dateFnsTz = require('date-fns-tz');
+const utcToZonedTime = dateFnsTz.utcToZonedTime; // Gán hàm cụ thể
+const format = dateFnsTz.format; // Gán hàm cụ thể
 
-const STORE_TIMEZONE = process.env.STORE_TIMEZONE || 'Asia/Ho_Chi_Minh'; // Ví dụ cho Việt Nam (GMT+7)
+// THÊM LOG ĐỂ KIỂM TRA NGAY SAU KHI IMPORT
+console.log('DEBUG: utcToZonedTime function after import:', typeof utcToZonedTime);
+
+
+const STORE_TIMEZONE = process.env.STORE_TIMEZONE || 'Asia/Ho_Chi_Minh'; 
 
 const matchesRule = (product, rule) => {
     const { column, relation, condition } = rule;
@@ -118,21 +128,18 @@ async function syncAllData(req, res) {
             ordersFromHaravan, 
             customersFromHaravan,
             productsFromHaravan,
-            smartCollectionsFromHaravan // <-- CẬP NHẬT: Chỉ lấy Smart Collections
-            // XÓA: collectsFromHaravan
+            smartCollectionsFromHaravan
         ] = await Promise.all([
             haravanService.getDiscountCodes(),
             haravanService.getOrders(), 
             haravanService.getCustomers(),
             haravanService.getProducts(),
-            haravanService.getSmartCollections(), // <-- CẬP NHẬT
-            // THAY THẾ getCollects() BẰNG MỘT PROMISE RỖNG
-            Promise.resolve({ collects: [] }) // <-- ĐÃ SỬA: Không gọi getCollects() nữa
+            haravanService.getSmartCollections(),
+            Promise.resolve({ collects: [] }) 
         ]);
 
         console.log(`- Đã lấy được: ${productsFromHaravan.length} sản phẩm, ${couponsFromHaravan.length} mã, ${ordersFromHaravan.length} đơn hàng, ${customersFromHaravan.length} khách hàng, ${smartCollectionsFromHaravan.length} Smart Collections.`);
-        // XÓA: collectsFromHaravan khỏi log nếu không dùng
-
+        
         // --- Bước 1.5: Đồng bộ Smart Collections vào Model MongoDB ---
         if (smartCollectionsFromHaravan && smartCollectionsFromHaravan.length > 0) {
             const collectionOps = smartCollectionsFromHaravan.map(collection => ({
@@ -147,28 +154,25 @@ async function syncAllData(req, res) {
                 }
             }));
             await HaravanCollection.bulkWrite(collectionOps);
-            console.log(`✅ Đã đồng bộ ${smartCollectionsFromHaravan.length} Smart Collections.`); // Cập nhật tên biến
+            console.log(`✅ Đã đồng bộ ${smartCollectionsFromHaravan.length} Smart Collections.`); 
         }
         
-        // Không cần collectionIdToNameMap hay productCollectsMap ở đây nữa
-        // vì Product sẽ tự tính toán membership dựa trên rules.
-
         // --- Bước 2: Đồng bộ Products và ánh xạ với Smart Collections ---
         if (productsFromHaravan && productsFromHaravan.length > 0) {
             const productOps = productsFromHaravan.map(product => {
                 const associatedCollectionIds = [];
                 const associatedCollectionNames = [];
 
-                smartCollectionsFromHaravan.forEach(collection => { // Lặp qua Smart Collections
+                smartCollectionsFromHaravan.forEach(collection => { 
                     const { rules, disjunctive } = collection;
                     
                     if (!rules || rules.length === 0) return; 
 
                     let isMatch = false;
 
-                    if (disjunctive) { // Nếu disjunctive = true (OR)
+                    if (disjunctive) { 
                         isMatch = rules.some(rule => matchesRule(product, rule));
-                    } else { // Nếu disjunctive = false (AND)
+                    } else { 
                         isMatch = rules.every(rule => matchesRule(product, rule));
                     }
 
