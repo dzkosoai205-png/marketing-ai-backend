@@ -22,8 +22,8 @@ let geminiModelInstance = null;
 if (GEMINI_API_KEY) {
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        console.log("✅ Gemini model 'gemini-1.5-flash-latest' đã được khởi tạo thành công.");
+        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        console.log("✅ Gemini model 'gemini-2.0-flash' đã được khởi tạo thành công.");
     } catch (error) {
         console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
     }
@@ -373,3 +373,4 @@ module.exports = {
     getDailyReportByDate,
     handleChat
 };
+
