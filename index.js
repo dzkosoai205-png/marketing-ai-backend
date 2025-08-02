@@ -1,50 +1,40 @@
 // ==========================================================
-// File: index.js (Phiên bản Hoàn chỉnh cuối cùng)
+// File: index.js (Cập nhật)
+// Xóa route AI cũ, thêm route AI mới
 // ==========================================================
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-// Nạp tất cả các file route
 const couponRoutes = require('./routes/coupon.routes');
 const orderRoutes = require('./routes/order.routes');
 const customerRoutes = require('./routes/customer.routes');
 const syncRoutes = require('./routes/sync.routes');
 const webhookRoutes = require('./routes/webhook.routes');
-const aiRoutes = require('./routes/ai.routes');
 const reportRoutes = require('./routes/report.routes');
-const accountingRoutes = require('./routes/accounting.routes'); // <-- Dòng mới
+const accountingRoutes = require('./routes/accounting.routes');
+const masterAIRoutes = require('./routes/masterAI.routes'); // <-- Dòng mới
 const socialRoutes = require('./routes/social.routes'); // <-- Dòng mới
 
-// Khởi tạo ứng dụng Express
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 
-// --- Sử dụng các route ---
 app.use('/api', couponRoutes);
 app.use('/api', orderRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', syncRoutes);
 app.use('/api', webhookRoutes);
-app.use('/api', aiRoutes);
 app.use('/api', reportRoutes);
-app.use('/api', accountingRoutes); // <-- Dòng mới
+app.use('/api', accountingRoutes);
+app.use('/api', masterAIRoutes); // <-- Dòng mới
 app.use('/api', socialRoutes); // <-- Dòng mới
 
-// --- KẾT NỐI DATABASE VÀ KHỞI ĐỘNG SERVER ---
+
 const MONGO_URI = process.env.MONGO_URI;
-
-if (!MONGO_URI) {
-    console.error("Lỗi: Biến môi trường MONGO_URI chưa được thiết lập trong file .env");
-    process.exit(1);
-}
-
 mongoose.connect(MONGO_URI)
     .then(() => {
         console.log("✅ Đã kết nối thành công đến MongoDB Atlas!");
