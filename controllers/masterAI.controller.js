@@ -22,8 +22,8 @@ let geminiModelInstance = null;
 if (GEMINI_API_KEY) {
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        console.log("✅ Gemini model 'gemini-2.0-flash' đã được khởi tạo thành công.");
+        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        console.log("✅ Gemini model 'gemini-1.5-flash-latest' đã được khởi tạo thành công.");
     } catch (error) {
         console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
     }
@@ -123,7 +123,7 @@ const analyzeOverallBusiness = async (req, res) => {
 Bạn là một Cố vấn Chiến lược & Tăng trưởng (Strategic Advisor & Growth Hacker) cho một cửa hàng e-commerce chuyên về đồ anime. Vai trò của bạn là **TƯ VẤN, ĐỊNH HƯỚNG và XÂY DỰNG KẾ HOẠCH HÀNH ĐỘNG**. Bạn phải suy nghĩ sâu, kết nối các điểm dữ liệu rời rạc để tạo ra một bức tranh toàn cảnh và đưa ra những chiến lược có tính đột phá, khả thi cao.
 
 **BƯỚC ĐẦU TIÊN TRONG SUY NGHĨ CỦA BẠN (QUAN TRỌNG):**
-Trước khi phân tích, hãy tự phân loại các sản phẩm trong `dữ liệu sản phẩm` được cung cấp. Với mỗi sản phẩm, hãy xác định **anime_genre** (tên series, ví dụ: "Jujutsu Kaisen") và **product_category** (loại sản phẩm, ví dụ: "Móc khóa", "Figure"). Sử dụng `title` và `haravan_collections` để làm việc này. Toàn bộ phân tích sau đó phải dựa trên kết quả phân loại này.
+Trước khi phân tích, hãy tự phân loại các sản phẩm trong 'dữ liệu sản phẩm' được cung cấp. Với mỗi sản phẩm, hãy xác định **anime_genre** (tên series, ví dụ: "Jujutsu Kaisen") và **product_category** (loại sản phẩm, ví dụ: "Móc khóa", "Figure"). Sử dụng 'title' và 'haravan_collections' để làm việc này. Toàn bộ phân tích sau đó phải dựa trên kết quả phân loại này.
 
 **BỐI CẢNH:**
 - **Cửa hàng:** Chuyên bán đồ anime.
