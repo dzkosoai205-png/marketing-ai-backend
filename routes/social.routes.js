@@ -1,14 +1,16 @@
 // ==========================================================
 // File: routes/social.routes.js
-// Nhiệm vụ: Định nghĩa "đường dẫn" (URL) cho các API social media.
+// PHIÊN BẢN NÂNG CẤP: Thêm route cho chức năng tạo kịch bản.
 // ==========================================================
 
 const express = require('express');
 const router = express.Router();
 const socialController = require('../controllers/social.controller');
 
-// Định nghĩa route: Khi có yêu cầu POST đến '/social/generate-caption',
-// nó sẽ được xử lý bởi hàm generateCaptions trong controller.
+// Route để tạo caption (đã có)
 router.post('/social/generate-caption', socialController.generateCaptions);
+
+// ✨ ROUTE MỚI: Route để tạo kịch bản TikTok
+router.post('/social/generate-script', socialController.generateScripts);
 
 module.exports = router;
