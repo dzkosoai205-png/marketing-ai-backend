@@ -2,6 +2,7 @@
 // File: controllers/masterAI.controller.js
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // PHIÊN BẢN NÂNG CẤP HOÀN CHỈNH: Biến AI thành một Cố vấn Chiến lược & Tăng trưởng.
+// Tối ưu hóa: Gộp các lệnh gọi API để tránh lỗi quota và tăng hiệu quả.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DailyReport = require('../models/dailyReport.model');
@@ -21,8 +22,8 @@ let geminiModelInstance = null;
 if (GEMINI_API_KEY) {
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        console.log("✅ Gemini model 'gemini-1.5-flash-latest' đã được khởi tạo thành công.");
+        geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        console.log("✅ Gemini model 'gemini-2.0-flash' đã được khởi tạo thành công.");
     } catch (error) {
         console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
     }
@@ -31,51 +32,7 @@ if (GEMINI_API_KEY) {
 }
 
 // ==========================================================
-// HÀM PHÂN LOẠI SẢN PHẨM BẰNG AI (Giữ nguyên như phiên bản trước)
-// ==========================================================
-const categorizeProductsWithAI = async (products) => {
-    if (!geminiModelInstance) {
-        console.error("AI model không khả dụng để phân loại sản phẩm.");
-        return products.map(p => ({ ...p, anime_genre: 'Chưa phân loại', product_category: 'Chưa phân loại' }));
-    }
-    console.log('🤖 [AI Categorizer] Bắt đầu phân loại sản phẩm bằng AI...');
-    const productTitles = products.map(p => ({ id: p.id, title: p.title, haravan_collections: p.haravan_collection_names || [] }));
-    const prompt = `
-        Bạn là một chuyên gia quản lý danh mục sản phẩm cho cửa hàng bán đồ anime.
-        Nhiệm vụ của bạn là phân loại chính xác các sản phẩm dựa trên tiêu đề và danh mục từ Haravan.
-        **Dữ liệu đầu vào:** Một danh sách các sản phẩm dưới dạng JSON.
-        **Dữ liệu đầu ra:** Trả về một đối tượng JSON duy nhất, trong đó key là ID của sản phẩm và value là một đối tượng chứa "anime_genre" và "product_category".
-        **Quy tắc phân loại:**
-        1.  **anime_genre:** Là tên của bộ anime/series/game (ví dụ: "Jujutsu Kaisen", "Genshin Impact", "Blue Lock"). Nếu không xác định được, hãy ghi là "Anime/Series Khác". Ưu tiên thông tin từ haravan_collections nếu có.
-        2.  **product_category:** Là loại sản phẩm. Hãy chọn một trong các giá trị sau: ["Thẻ", "Đồ bông", "Móc khóa", "Mô hình", "Poster", "Artbook", "Áo", "Phụ kiện", "Standee", "Badge", "Shikishi", "Nendoroid", "Figure", "Gacha", "Văn phòng phẩm", "Loại Khác"]. Dựa vào các từ khóa trong tiêu đề để quyết định.
-        **HÃY CHỈ TRẢ VỀ MỘT ĐỐI TƯỢNG JSON HOÀN CHỈNH, KHÔNG GIẢI THÍCH GÌ THÊM.**
-        **Danh sách sản phẩm cần phân loại:**
-        ${JSON.stringify(productTitles)}
-    `;
-    try {
-        const result = await geminiModelInstance.generateContent(prompt);
-        const response = await result.response;
-        const textResponse = response.text();
-        const jsonString = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        const categorizedData = JSON.parse(jsonString);
-        console.log('✅ [AI Categorizer] Phân loại sản phẩm thành công.');
-        const enrichedProducts = products.map(p => {
-            const categories = categorizedData[p.id];
-            return {
-                ...p,
-                anime_genre: categories ? categories.anime_genre : 'Chưa phân loại (Lỗi AI)',
-                product_category: categories ? categories.product_category : 'Chưa phân loại (Lỗi AI)',
-            };
-        });
-        return enrichedProducts;
-    } catch (error) {
-        console.error('❌ [AI Categorizer] Lỗi trong quá trình phân loại sản phẩm bằng AI:', error.message);
-        return products.map(p => ({ ...p, anime_genre: 'Chưa phân loại (Lỗi)', product_category: 'Chưa phân loại (Lỗi)' }));
-    }
-};
-
-// ==========================================================
-// HÀM PHÂN TÍCH KINH DOANH CHÍNH
+// HÀM PHÂN TÍCH KINH DOANH CHÍNH (ĐÃ TỐI ƯU HÓA)
 // ==========================================================
 const analyzeOverallBusiness = async (req, res) => {
     console.log('🤖 [Strategic AI] Nhận được yêu cầu phân tích chiến lược chuyên sâu...');
@@ -94,7 +51,7 @@ const analyzeOverallBusiness = async (req, res) => {
         queryDateForDailyReport.setUTCHours(0, 0, 0, 0);
 
         const [
-            reportForAnalysis, settings, upcomingEvents, recentOrders, rawProducts,
+            reportForAnalysis, settings, upcomingEvents, recentOrders, allProducts,
             allCoupons, allCustomers, abandonedCheckouts
         ] = await Promise.all([
             DailyReport.findOne({ report_date: queryDateForDailyReport }).lean(),
@@ -107,13 +64,9 @@ const analyzeOverallBusiness = async (req, res) => {
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000) } }).lean()
         ]);
 
-        // BƯỚC 2: LÀM GIÀU DỮ LIỆU
-        // 2.1. Phân loại sản phẩm bằng AI
-        const allProducts = await categorizeProductsWithAI(rawProducts);
-
-        // 2.2. Chuẩn bị dữ liệu chi tiết và có ngữ cảnh hơn cho Prompt
+        // BƯỚC 2: LÀM GIÀU DỮ LIỆU (TRƯỚC KHI GỬI CHO AI)
         const customerDetailsForAI = allCustomers.map(c => {
-            const lastOrderDate = c.last_order_name ? new Date(c.updated_at) : null; // Giả định updated_at là ngày đơn cuối
+            const lastOrderDate = c.last_order_name ? new Date(c.updated_at) : null;
             const daysSinceLastOrder = lastOrderDate ? Math.ceil((new Date() - lastOrderDate) / (1000 * 60 * 60 * 24)) : null;
             return {
                 id: c.id,
@@ -122,7 +75,6 @@ const analyzeOverallBusiness = async (req, res) => {
                 orders_count: c.orders_count,
                 membership_tier: c.haravan_segments && c.haravan_segments.length > 0 ? c.haravan_segments[0] : 'Thành viên mới',
                 days_since_last_order: daysSinceLastOrder,
-                // Phân loại khách hàng tiềm năng dựa trên hành vi
                 behavioral_segment: daysSinceLastOrder === null ? 'New' : (daysSinceLastOrder > 90 ? 'At Risk' : 'Active')
             };
         });
@@ -140,11 +92,10 @@ const analyzeOverallBusiness = async (req, res) => {
             }, 0);
             return {
                 id: p.id,
-                title: p.title,
-                anime_genre: p.anime_genre,
-                product_category: p.product_category,
+                title: p.title, // Gửi tiêu đề thô
+                haravan_collections: p.haravan_collection_names || [], // Gửi collection thô
                 current_inventory: totalInventory,
-                total_inventory_cost: totalCost, // Vốn tồn kho
+                total_inventory_cost: totalCost,
                 quantity_sold_recent: quantitySoldRecent,
                 is_slow_seller: quantitySoldRecent === 0 && totalInventory > 0
             };
@@ -166,26 +117,29 @@ const analyzeOverallBusiness = async (req, res) => {
 
 
         // ==========================================================
-        // PROMPT NÂNG CẤP - TRÁI TIM CỦA CỐ VẤN CHIẾN LƯỢC AI
+        // PROMPT NÂNG CẤP - GỘP 2 NHIỆM VỤ VÀO 1
         // ==========================================================
         const prompt = `
-Bạn là một Cố vấn Chiến lược & Tăng trưởng (Strategic Advisor & Growth Hacker) cho một cửa hàng e-commerce chuyên về đồ anime. Vai trò của bạn không chỉ là báo cáo, mà là **TƯ VẤN, ĐỊNH HƯỚNG và XÂY DỰNG KẾ HOẠCH HÀNH ĐỘNG**. Bạn phải suy nghĩ sâu, kết nối các điểm dữ liệu rời rạc để tạo ra một bức tranh toàn cảnh và đưa ra những chiến lược có tính đột phá, khả thi cao.
+Bạn là một Cố vấn Chiến lược & Tăng trưởng (Strategic Advisor & Growth Hacker) cho một cửa hàng e-commerce chuyên về đồ anime. Vai trò của bạn là **TƯ VẤN, ĐỊNH HƯỚNG và XÂY DỰNG KẾ HOẠCH HÀNH ĐỘNG**. Bạn phải suy nghĩ sâu, kết nối các điểm dữ liệu rời rạc để tạo ra một bức tranh toàn cảnh và đưa ra những chiến lược có tính đột phá, khả thi cao.
+
+**BƯỚC ĐẦU TIÊN TRONG SUY NGHĨ CỦA BẠN (QUAN TRỌNG):**
+Trước khi phân tích, hãy tự phân loại các sản phẩm trong `dữ liệu sản phẩm` được cung cấp. Với mỗi sản phẩm, hãy xác định **anime_genre** (tên series, ví dụ: "Jujutsu Kaisen") và **product_category** (loại sản phẩm, ví dụ: "Móc khóa", "Figure"). Sử dụng `title` và `haravan_collections` để làm việc này. Toàn bộ phân tích sau đó phải dựa trên kết quả phân loại này.
 
 **BỐI CẢNH:**
-- **Cửa hàng:** Chuyên bán đồ anime, có các nhóm sản phẩm theo từng series (anime_genre) và loại sản phẩm (product_category).
-- **Nền tảng:** Sử dụng Haravan, có hệ thống phân hạng thành viên tự động.
-- **Mục tiêu kinh doanh:** Tối đa hóa lợi nhuận, tăng trưởng bền vững, xây dựng cộng đồng khách hàng trung thành.
-- **Ràng buộc cốt lõi:** Mọi đề xuất khuyến mãi phải đảm bảo biên lợi nhuận trung bình trên sản phẩm là 30%. Nếu đề xuất một chiến dịch có thể làm giảm lợi nhuận, phải nêu rõ rủi ro và cách bù đắp.
+- **Cửa hàng:** Chuyên bán đồ anime.
+- **Nền tảng:** Haravan, có hệ thống phân hạng thành viên tự động.
+- **Mục tiêu:** Tối đa hóa lợi nhuận, tăng trưởng bền vững.
+- **Ràng buộc:** Mọi đề xuất khuyến mãi phải đảm bảo biên lợi nhuận trung bình là 30%. Nếu giảm, phải nêu rõ rủi ro và cách bù đắp.
 
-**NHIỆM VỤ CỦA BẠN:**
-Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các câu hỏi chiến lược sau và trình bày kết quả dưới dạng một đối tượng JSON duy nhất, hoàn chỉnh.
+**NHIỆM VỤ:**
+Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lược sau và trình bày kết quả dưới dạng một đối tượng JSON duy nhất.
 
-**CÁC CÂU HỎI CHIẾN LƯỢC CẦN TRẢ LỜI:**
-1.  **Sức khỏe tổng thể (Overall Health):** Tình hình kinh doanh hiện tại đang ở đâu? Đâu là điểm sáng lớn nhất và đâu là rủi ro nghiêm trọng nhất?
-2.  **Dòng tiền (Cash Flow):** Dòng tiền có lành mạnh không? Các sự kiện chi tiêu sắp tới có đe dọa đến sự ổn định tài chính không? Cần làm gì NGAY LẬP TỨC để đảm bảo an toàn tài chính?
-3.  **Sản phẩm (Product Portfolio):** Danh mục sản phẩm của chúng ta có "khỏe" không? Đâu là "ngôi sao" (lợi nhuận cao, bán chạy), "con bò sữa" (lợi nhuận ổn, bán đều), "dấu hỏi" (cần theo dõi) và "gánh nặng" (tồn kho cao, bán chậm, lợi nhuận thấp)?
-4.  **Khách hàng (Customer Lifecycle):** Chúng ta đang làm tốt ở khâu nào trong vòng đời khách hàng (Thu hút -> Chuyển đổi -> Giữ chân -> Trung thành)? Phân khúc khách hàng nào (theo hạng thành viên) đang mang lại nhiều giá trị nhất? Phân khúc nào đang bị bỏ quên?
-5.  **Cơ hội tăng trưởng (Growth Opportunities):** Đâu là 2-3 cơ hội lớn nhất để tăng trưởng doanh thu và lợi nhuận trong 30 ngày tới?
+**CÁC CÂU HỎI CHIẾN LƯỢC:**
+1.  **Sức khỏe tổng thể:** Tình hình kinh doanh hiện tại ra sao? Đâu là điểm sáng và rủi ro lớn nhất?
+2.  **Dòng tiền:** Có lành mạnh không? Các khoản chi sắp tới có đáng lo không? Cần làm gì ngay?
+3.  **Sản phẩm:** Danh mục sản phẩm có "khỏe" không? Đâu là "ngôi sao", "con bò sữa", "dấu hỏi" và "gánh nặng"?
+4.  **Khách hàng:** Vòng đời khách hàng đang ở đâu? Phân khúc nào giá trị nhất? Phân khúc nào bị bỏ quên?
+5.  **Cơ hội tăng trưởng:** Đâu là 2-3 cơ hội lớn nhất trong 30 ngày tới?
 
 ---
 **DỮ LIỆU ĐẦU VÀO:**
@@ -197,8 +151,8 @@ Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các c�
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Các khoản chi lớn sắp tới: ${JSON.stringify(upcomingEvents.map(e => ({ name: e.event_name, amount: e.amount, due_date: e.due_date.toLocaleDateString('vi-VN') })))}.
 
-- **Dữ liệu sản phẩm (đã được AI phân loại và làm giàu):**
-  - Chi tiết toàn bộ sản phẩm (bao gồm anime_genre, product_category, tồn kho, vốn tồn kho, số lượng bán gần đây, tình trạng bán chậm): ${JSON.stringify(productDetailsForAI)}.
+- **Dữ liệu sản phẩm (THÔ - cần bạn tự phân loại):**
+  - Chi tiết toàn bộ sản phẩm (bao gồm title, haravan_collections, tồn kho, vốn tồn kho, số lượng bán gần đây, tình trạng bán chậm): ${JSON.stringify(productDetailsForAI)}.
 
 - **Dữ liệu khách hàng (đã làm giàu):**
   - Chi tiết toàn bộ khách hàng (bao gồm hạng thành viên, số ngày từ lần mua cuối, phân khúc hành vi): ${JSON.stringify(customerDetailsForAI)}.
@@ -278,7 +232,7 @@ Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các c�
 \`\`\`
 `;
 
-        // BƯỚC 4: GỌI AI VÀ XỬ LÝ KẾT QUẢ
+        // BƯỚC 3: GỌI AI VÀ XỬ LÝ KẾT QUẢ
         const result = await geminiModelInstance.generateContent(prompt);
         const response = await result.response;
         const textResponse = response.text();
@@ -287,13 +241,14 @@ Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các c�
 
         let analysisResultJson;
         try {
+            // Cải thiện khả năng parse JSON, ưu tiên tìm khối ```json
             const jsonBlockMatch = textResponse.match(/```json\n([\s\S]*?)\n```/);
-            if (!jsonBlockMatch || jsonBlockMatch.length < 2) {
-                // Fallback nếu không có ```json
-                analysisResultJson = JSON.parse(textResponse);
-            } else {
+            if (jsonBlockMatch && jsonBlockMatch[1]) {
                 const jsonString = jsonBlockMatch[1].trim();
                 analysisResultJson = JSON.parse(jsonString);
+            } else {
+                // Fallback nếu không có khối ```json, thử parse toàn bộ
+                analysisResultJson = JSON.parse(textResponse);
             }
         } catch (parseError) {
             console.error('❌ Lỗi parsing JSON từ Cố vấn Chiến lược AI:', parseError.message);
@@ -303,7 +258,7 @@ Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các c�
             });
         }
 
-        // Lưu kết quả vào DB
+        // BƯỚC 4: LƯU KẾT QUẢ VÀO DB
         await DailyReport.findOneAndUpdate(
             { report_date: queryDateForDailyReport },
             { $set: { ai_analysis_results: analysisResultJson } },
@@ -315,12 +270,16 @@ Dựa trên toàn bộ dữ liệu được cung cấp, hãy trả lời các c�
 
     } catch (error) {
         console.error('❌ Lỗi trong quá trình phân tích chiến lược:', error);
+        // Phân tích lỗi cụ thể hơn từ Google
+        if (error.message && error.message.includes('429')) {
+             return res.status(429).json({ message: 'Lỗi từ Gemini: Vượt quá giới hạn truy cập (rate limit). Có thể do prompt quá lớn. Vui lòng thử lại sau hoặc giảm phạm vi dữ liệu.', error: error.message });
+        }
         res.status(500).json({ message: 'Lỗi trong quá trình phân tích chiến lược.', error: error.message });
     }
 }
 
 // =========================================================================
-// HÀM ĐỂ LẤY BÁO CÁO HÀNG NGÀY THEO NGÀY (ĐÃ ĐƯỢC THÊM LẠI)
+// HÀM ĐỂ LẤY BÁO CÁO HÀNG NGÀY THEO NGÀY
 // =========================================================================
 const getDailyReportByDate = async (req, res) => {
     const dateParam = req.query.date;
@@ -331,7 +290,7 @@ const getDailyReportByDate = async (req, res) => {
 
     try {
         const queryDate = new Date(dateParam);
-        queryDate.setUTCHours(0,0,0,0); // Chuẩn hóa về đầu ngày UTC
+        queryDate.setUTCHours(0,0,0,0);
 
         const report = await DailyReport.findOne({ report_date: queryDate }).lean();
 
@@ -347,7 +306,7 @@ const getDailyReportByDate = async (req, res) => {
 };
 
 // =========================================================================
-// HÀM XỬ LÝ AI CHAT TRỰC TIẾP (ĐÃ ĐƯỢC THÊM LẠI)
+// HÀM XỬ LÝ AI CHAT TRỰC TIẾP
 // =========================================================================
 const handleChat = async (req, res) => {
     console.log('💬 [AI Chat] Nhận được tin nhắn mới...');
@@ -362,7 +321,6 @@ const handleChat = async (req, res) => {
     }
 
     try {
-        // 1. Tải lịch sử chat từ MongoDB hoặc tạo phiên mới
         let chatSessionDoc = await ChatSession.findOne({ sessionId });
         let history = [];
 
@@ -370,9 +328,7 @@ const handleChat = async (req, res) => {
             history = chatSessionDoc.history;
             console.log(`💬 [AI Chat] Đã tải lịch sử cho session ${sessionId} (${history.length} tin nhắn).`);
         } else {
-            // Nếu là phiên mới, và có initialContext (ví dụ: kết quả phân tích Master AI)
             if (initialContext) {
-                // Thêm context ban đầu vào lịch sử chat
                 history.push({
                     role: 'user',
                     parts: [{ text: `Bắt đầu phiên tư vấn. Dưới đây là bối cảnh từ bản phân tích kinh doanh mà bạn đã tạo. Hãy đóng vai trò là cố vấn chiến lược và trả lời các câu hỏi của tôi dựa trên dữ liệu này.` }]
@@ -388,7 +344,6 @@ const handleChat = async (req, res) => {
             chatSessionDoc = new ChatSession({ sessionId, history });
         }
 
-        // 2. Khởi tạo ChatSession của Gemini với lịch sử
         const chat = geminiModelInstance.startChat({
             history: history,
             generationConfig: {
@@ -396,11 +351,9 @@ const handleChat = async (req, res) => {
             },
         });
 
-        // 3. Gửi tin nhắn của người dùng và nhận phản hồi
         const result = await chat.sendMessage(message);
         const modelResponseText = result.response.text();
 
-        // 4. Cập nhật lịch sử chat và lưu vào DB
         chatSessionDoc.history.push({ role: 'user', parts: [{ text: message }] });
         chatSessionDoc.history.push({ role: 'model', parts: [{ text: modelResponseText }] });
         chatSessionDoc.lastActivity = new Date();
