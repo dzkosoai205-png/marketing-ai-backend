@@ -2,7 +2,7 @@
 // File: controllers/masterAI.controller.js
 // Nhiệm vụ: Xử lý logic AI để phân tích dữ liệu kinh doanh VÀ chat AI.
 // PHIÊN BẢN NÂNG CẤP HOÀN CHỈNH: Biến AI thành một Cố vấn Chiến lược & Tăng trưởng.
-// Tối ưu hóa: Gộp các lệnh gọi API để tránh lỗi quota và tăng hiệu quả.
+// Tối ưu hóa: Tóm tắt dữ liệu trước khi gửi để tránh lỗi quota và tăng hiệu quả.
 // ==========================================================
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DailyReport = require('../models/dailyReport.model');
@@ -23,13 +23,44 @@ if (GEMINI_API_KEY) {
     try {
         const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
         geminiModelInstance = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        console.log("✅ Gemini model 'gemini-2.0-flash' đã được khởi tạo thành công.");
+        console.log("✅ Gemini model 'gemini-1.5-flash-latest' đã được khởi tạo thành công.");
     } catch (error) {
         console.error("❌ Lỗi khi khởi tạo Gemini AI Model:", error.message);
     }
 } else {
     console.warn("Cảnh báo: Biến môi trường GEMINI_API_KEY chưa được thiết lập.");
 }
+
+// Hàm getProductCategorization cũ (giữ lại để tham khảo hoặc sử dụng nếu AI phân loại thất bại)
+const getProductCategorization = (product) => {
+    let animeGenre = 'Anime/Series Khác';
+    let productCategory = 'Loại Khác';
+    if (product.haravan_collection_names && product.haravan_collection_names.length > 0) {
+        const mainAnimeCollection = product.haravan_collection_names.find(colName => {
+            const lowerColName = colName.toLowerCase();
+            return !(lowerColName.includes('hàng có sẵn') || lowerColName.includes('bán chạy') || lowerColName.includes('hàng mới') || lowerColName.includes('all products') || lowerColName.includes('bộ sản phẩm') || lowerColName.includes('sản phẩm'));
+        });
+        if (mainAnimeCollection) {
+            animeGenre = mainAnimeCollection.trim();
+        } else if (product.haravan_collection_names.length > 0) {
+            animeGenre = product.haravan_collection_names[0].trim();
+        }
+    } else {
+        const animeGenreMatch = product.title.match(/\[(.*?)\]/);
+        animeGenre = animeGenreMatch ? animeGenreMatch[1].trim() : 'Anime/Series Khác (từ tiêu đề)';
+    }
+    const predefinedCategories = ["Thẻ", "Đồ bông", "Móc khóa", "Mô hình", "Poster", "Artbook", "Áo", "Phụ kiện", "Gói", "Tượng", "Văn phòng phẩm", "Đồ chơi", "Standee", "Badge", "Shikishi", "Block", "Fuwa", "Tapinui", "Nendoroid", "Figure", "Lookup"];
+    const lowerCaseTitle = product.title.toLowerCase();
+    for (const category of predefinedCategories) {
+        if (lowerCaseTitle.includes(category.toLowerCase())) {
+            productCategory = category;
+            break;
+        }
+    }
+    if (productCategory === 'Loại Khác' && product.product_type) productCategory = product.product_type;
+    return { anime_genre: animeGenre, product_category: productCategory };
+};
+
 
 // ==========================================================
 // HÀM PHÂN TÍCH KINH DOANH CHÍNH (ĐÃ TỐI ƯU HÓA)
@@ -64,66 +95,76 @@ const analyzeOverallBusiness = async (req, res) => {
             AbandonedCheckout.find({ created_at_haravan: { $gte: new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000) } }).lean()
         ]);
 
-        // BƯỚC 2: LÀM GIÀU DỮ LIỆU (TRƯỚC KHI GỬI CHO AI)
-        const customerDetailsForAI = allCustomers.map(c => {
-            const lastOrderDate = c.last_order_name ? new Date(c.updated_at) : null;
-            const daysSinceLastOrder = lastOrderDate ? Math.ceil((new Date() - lastOrderDate) / (1000 * 60 * 60 * 24)) : null;
-            return {
-                id: c.id,
-                name: `${c.first_name || ''} ${c.last_name || ''}`.trim(),
-                total_spent: c.total_spent,
-                orders_count: c.orders_count,
-                membership_tier: c.haravan_segments && c.haravan_segments.length > 0 ? c.haravan_segments[0] : 'Thành viên mới',
-                days_since_last_order: daysSinceLastOrder,
-                behavioral_segment: daysSinceLastOrder === null ? 'New' : (daysSinceLastOrder > 90 ? 'At Risk' : 'Active')
-            };
-        });
+        // BƯỚC 2: TÓM TẮT VÀ TỔNG HỢP DỮ LIỆU (QUAN TRỌNG NHẤT ĐỂ GIẢM TOKEN)
+        
+        // 2.1. Tóm tắt khách hàng
+        const customerSummary = {
+            total_customers: allCustomers.length,
+            new_customers_last_30_days: allCustomers.filter(c => new Date(c.created_at) > new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000)).length,
+            segment_distribution: allCustomers.reduce((acc, c) => {
+                const tier = (c.haravan_segments && c.haravan_segments.length > 0) ? c.haravan_segments[0] : 'Thành viên mới';
+                acc[tier] = (acc[tier] || 0) + 1;
+                return acc;
+            }, {}),
+            top_5_vips: allCustomers.slice(0, 5).map(c => ({ name: `${c.first_name || ''} ${c.last_name || ''}`.trim(), total_spent: c.total_spent, tier: (c.haravan_segments && c.haravan_segments.length > 0) ? c.haravan_segments[0] : 'Mới' })),
+            at_risk_customer_count: allCustomers.filter(c => {
+                 const lastOrderDate = c.last_order_name ? new Date(c.updated_at) : null;
+                 return lastOrderDate && (new Date() - lastOrderDate) > 90 * 24 * 60 * 60 * 1000;
+            }).length
+        };
 
-        const productDetailsForAI = allProducts.map(p => {
-            let totalInventory = 0;
-            let totalCost = 0;
-            p.variants.forEach(v => {
-                totalInventory += (v.inventory_quantity || 0);
-                totalCost += (v.inventory_quantity || 0) * (v.cost || 0);
-            });
-            const quantitySoldRecent = recentOrders.reduce((sum, order) => {
+        // 2.2. Tóm tắt sản phẩm và hiệu suất
+        const productPerformance = {};
+        let totalInventoryValue = 0;
+        allProducts.forEach(p => {
+            const { anime_genre } = getProductCategorization(p); // Vẫn dùng hàm cũ để phân loại trước
+            if (!productPerformance[anime_genre]) {
+                productPerformance[anime_genre] = { revenue: 0, quantity: 0, product_count: 0 };
+            }
+            const revenue = recentOrders.reduce((sum, order) => {
+                const item = order.line_items.find(li => li.product_id === p.id);
+                return sum + (item ? item.price * item.quantity : 0);
+            }, 0);
+            const quantity = recentOrders.reduce((sum, order) => {
                 const item = order.line_items.find(li => li.product_id === p.id);
                 return sum + (item ? item.quantity : 0);
             }, 0);
-            return {
-                id: p.id,
-                title: p.title, // Gửi tiêu đề thô
-                haravan_collections: p.haravan_collection_names || [], // Gửi collection thô
-                current_inventory: totalInventory,
-                total_inventory_cost: totalCost,
-                quantity_sold_recent: quantitySoldRecent,
-                is_slow_seller: quantitySoldRecent === 0 && totalInventory > 0
-            };
+            
+            productPerformance[anime_genre].revenue += revenue;
+            productPerformance[anime_genre].quantity += quantity;
+            productPerformance[anime_genre].product_count++;
+
+            p.variants.forEach(v => {
+                totalInventoryValue += (v.inventory_quantity || 0) * (v.cost || 0);
+            });
         });
-
-        const abandonedCheckoutsForAI = abandonedCheckouts.slice(0, 5).map(ac => ({
-            customer_email: ac.email,
-            total_price: ac.total_price,
-            items: ac.line_items.map(item => ({ title: item.title, quantity: item.quantity }))
-        }));
-
-        const existingCouponsForAI = allCoupons.map(c => ({
-            code: c.code,
-            type: c.discount_type,
-            value: c.value
-        }));
         
+        const soldProductIdsInRecentOrders = new Set(recentOrders.flatMap(o => o.line_items.map(li => li.product_id)));
+        const slowSellers = allProducts
+            .filter(p => !soldProductIdsInRecentOrders.has(p.id) && p.variants.some(v => v.inventory_quantity > 0))
+            .slice(0, 5)
+            .map(p => ({ title: p.title, inventory: p.variants.reduce((sum, v) => sum + v.inventory_quantity, 0) }));
+
+        const productSummary = {
+            total_products: allProducts.length,
+            total_inventory_value: totalInventoryValue,
+            performance_by_genre: productPerformance,
+            top_5_slow_sellers: slowSellers
+        };
+
+        // 2.3. Tóm tắt các dữ liệu khác
+        const abandonedCheckoutsForAI = abandonedCheckouts.slice(0, 3).map(ac => ({
+            total_price: ac.total_price,
+            item_count: ac.line_items.length
+        }));
+
         const reportDataForAI = reportForAnalysis || { total_revenue: 0, total_profit: 0, notes: "Không có báo cáo." };
 
-
         // ==========================================================
-        // PROMPT NÂNG CẤP - GỘP 2 NHIỆM VỤ VÀO 1
+        // PROMPT ĐÃ ĐƯỢC TỐI ƯU HÓA VỚI DỮ LIỆU TÓM TẮT
         // ==========================================================
         const prompt = `
-Bạn là một Cố vấn Chiến lược & Tăng trưởng (Strategic Advisor & Growth Hacker) cho một cửa hàng e-commerce chuyên về đồ anime. Vai trò của bạn là **TƯ VẤN, ĐỊNH HƯỚNG và XÂY DỰNG KẾ HOẠCH HÀNH ĐỘNG**. Bạn phải suy nghĩ sâu, kết nối các điểm dữ liệu rời rạc để tạo ra một bức tranh toàn cảnh và đưa ra những chiến lược có tính đột phá, khả thi cao.
-
-**BƯỚC ĐẦU TIÊN TRONG SUY NGHĨ CỦA BẠN (QUAN TRỌNG):**
-Trước khi phân tích, hãy tự phân loại các sản phẩm trong 'dữ liệu sản phẩm' được cung cấp. Với mỗi sản phẩm, hãy xác định **anime_genre** (tên series, ví dụ: "Jujutsu Kaisen") và **product_category** (loại sản phẩm, ví dụ: "Móc khóa", "Figure"). Sử dụng 'title' và 'haravan_collections' để làm việc này. Toàn bộ phân tích sau đó phải dựa trên kết quả phân loại này.
+Bạn là một Cố vấn Chiến lược & Tăng trưởng (Strategic Advisor & Growth Hacker) cho một cửa hàng e-commerce chuyên về đồ anime. Vai trò của bạn là **TƯ VẤN, ĐỊNH HƯỚNG và XÂY DỰNG KẾ HOẠCH HÀNH ĐỘNG** dựa trên dữ liệu đã được tóm tắt.
 
 **BỐI CẢNH:**
 - **Cửa hàng:** Chuyên bán đồ anime.
@@ -132,17 +173,17 @@ Trước khi phân tích, hãy tự phân loại các sản phẩm trong 'dữ l
 - **Ràng buộc:** Mọi đề xuất khuyến mãi phải đảm bảo biên lợi nhuận trung bình là 30%. Nếu giảm, phải nêu rõ rủi ro và cách bù đắp.
 
 **NHIỆM VỤ:**
-Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lược sau và trình bày kết quả dưới dạng một đối tượng JSON duy nhất.
+Dựa trên toàn bộ dữ liệu tóm tắt, hãy trả lời các câu hỏi chiến lược sau và trình bày kết quả dưới dạng một đối tượng JSON duy nhất.
 
 **CÁC CÂU HỎI CHIẾN LƯỢC:**
 1.  **Sức khỏe tổng thể:** Tình hình kinh doanh hiện tại ra sao? Đâu là điểm sáng và rủi ro lớn nhất?
 2.  **Dòng tiền:** Có lành mạnh không? Các khoản chi sắp tới có đáng lo không? Cần làm gì ngay?
-3.  **Sản phẩm:** Danh mục sản phẩm có "khỏe" không? Đâu là "ngôi sao", "con bò sữa", "dấu hỏi" và "gánh nặng"?
-4.  **Khách hàng:** Vòng đời khách hàng đang ở đâu? Phân khúc nào giá trị nhất? Phân khúc nào bị bỏ quên?
+3.  **Sản phẩm:** Dựa vào hiệu suất các nhóm sản phẩm, nhóm nào là 'ngôi sao' cần đầu tư, nhóm nào là 'gánh nặng' cần xử lý?
+4.  **Khách hàng:** Dựa vào phân khúc khách hàng, chúng ta nên tập trung vào nhóm nào? Có bao nhiêu khách hàng đang có nguy cơ rời bỏ?
 5.  **Cơ hội tăng trưởng:** Đâu là 2-3 cơ hội lớn nhất trong 30 ngày tới?
 
 ---
-**DỮ LIỆU ĐẦU VÀO:**
+**DỮ LIỆU TÓM TẮT ĐẦU VÀO:**
 
 - **Dữ liệu tài chính & mục tiêu:**
   - Báo cáo ngày ${new Date(selectedReportDateString).toLocaleDateString('vi-VN')}: Doanh thu ${reportDataForAI.total_revenue.toLocaleString('vi-VN')}đ, Lợi nhuận ${reportDataForAI.total_profit.toLocaleString('vi-VN')}đ.
@@ -151,15 +192,13 @@ Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lư
   - Mục tiêu lợi nhuận tháng: ${(settings?.monthly_profit_target || 0).toLocaleString('vi-VN')}đ.
   - Các khoản chi lớn sắp tới: ${JSON.stringify(upcomingEvents.map(e => ({ name: e.event_name, amount: e.amount, due_date: e.due_date.toLocaleDateString('vi-VN') })))}.
 
-- **Dữ liệu sản phẩm (THÔ - cần bạn tự phân loại):**
-  - Chi tiết toàn bộ sản phẩm (bao gồm title, haravan_collections, tồn kho, vốn tồn kho, số lượng bán gần đây, tình trạng bán chậm): ${JSON.stringify(productDetailsForAI)}.
+- **Dữ liệu tóm tắt sản phẩm:** ${JSON.stringify(productSummary)}.
 
-- **Dữ liệu khách hàng (đã làm giàu):**
-  - Chi tiết toàn bộ khách hàng (bao gồm hạng thành viên, số ngày từ lần mua cuối, phân khúc hành vi): ${JSON.stringify(customerDetailsForAI)}.
+- **Dữ liệu tóm tắt khách hàng:** ${JSON.stringify(customerSummary)}.
 
 - **Dữ liệu phễu bán hàng & marketing:**
-  - Chi tiết 5 giỏ hàng bị bỏ quên có giá trị cao nhất (7 ngày qua): ${JSON.stringify(abandonedCheckoutsForAI)}.
-  - Danh sách các mã coupon đang có: ${JSON.stringify(existingCouponsForAI)}.
+  - Top 3 giỏ hàng bị bỏ quên có giá trị cao nhất (7 ngày qua): ${JSON.stringify(abandonedCheckoutsForAI)}.
+  - Số lượng mã coupon đang có: ${allCoupons.length}.
 
 ---
 **YÊU CẦU ĐẦU RA: MỘT ĐỐI TƯỢNG JSON HOÀN CHỈNH. KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO BÊN NGOÀI KHỐI JSON.**
@@ -214,17 +253,6 @@ Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lư
           "Bước 3: Giới thiệu các sản phẩm mới thuộc anime_genre mà họ từng mua."
         ],
         "kpi": "Tỷ lệ mở email > 25%. Tỷ lệ chuyển đổi từ chiến dịch > 5%."
-      },
-      {
-        "priority": "Medium (Ưu tiên 3)",
-        "initiative_name": "Tối ưu Phễu bán hàng - Cứu giỏ hàng",
-        "description": "Triển khai chiến dịch tự động để cứu các giỏ hàng bị bỏ quên có giá trị cao.",
-        "steps": [
-          "Bước 1: Thiết lập luồng email tự động gửi sau 2 giờ khách bỏ quên giỏ hàng.",
-          "Bước 2: Email đầu tiên chỉ nhắc nhở. Email thứ hai sau 24 giờ sẽ kèm mã giảm giá 10% hoặc freeship.",
-          "Bước 3: Test A/B tiêu đề email để tìm ra câu chữ hiệu quả nhất."
-        ],
-        "kpi": "Tăng tỷ lệ cứu giỏ hàng thành công lên 15%."
       }
     ]
   }
@@ -241,13 +269,11 @@ Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lư
 
         let analysisResultJson;
         try {
-            // Cải thiện khả năng parse JSON, ưu tiên tìm khối ```json
             const jsonBlockMatch = textResponse.match(/```json\n([\s\S]*?)\n```/);
             if (jsonBlockMatch && jsonBlockMatch[1]) {
                 const jsonString = jsonBlockMatch[1].trim();
                 analysisResultJson = JSON.parse(jsonString);
             } else {
-                // Fallback nếu không có khối ```json, thử parse toàn bộ
                 analysisResultJson = JSON.parse(textResponse);
             }
         } catch (parseError) {
@@ -270,7 +296,6 @@ Dựa trên toàn bộ dữ liệu, hãy trả lời các câu hỏi chiến lư
 
     } catch (error) {
         console.error('❌ Lỗi trong quá trình phân tích chiến lược:', error);
-        // Phân tích lỗi cụ thể hơn từ Google
         if (error.message && error.message.includes('429')) {
              return res.status(429).json({ message: 'Lỗi từ Gemini: Vượt quá giới hạn truy cập (rate limit). Có thể do prompt quá lớn. Vui lòng thử lại sau hoặc giảm phạm vi dữ liệu.', error: error.message });
         }
@@ -326,7 +351,6 @@ const handleChat = async (req, res) => {
 
         if (chatSessionDoc) {
             history = chatSessionDoc.history;
-            console.log(`💬 [AI Chat] Đã tải lịch sử cho session ${sessionId} (${history.length} tin nhắn).`);
         } else {
             if (initialContext) {
                 history.push({
@@ -337,9 +361,6 @@ const handleChat = async (req, res) => {
                     role: 'model',
                     parts: [{ text: `Rất sẵn lòng. Tôi đã xem xét bản phân tích chi tiết: \n\`\`\`json\n${JSON.stringify(initialContext, null, 2)}\n\`\`\`\n. Bạn muốn đi sâu vào vấn đề nào đầu tiên?` }]
                 });
-                console.log(`💬 [AI Chat] Tạo session mới ${sessionId} với context ban đầu.`);
-            } else {
-                console.log(`💬 [AI Chat] Tạo session mới ${sessionId} (không có context ban đầu).`);
             }
             chatSessionDoc = new ChatSession({ sessionId, history });
         }
@@ -359,7 +380,6 @@ const handleChat = async (req, res) => {
         chatSessionDoc.lastActivity = new Date();
         await chatSessionDoc.save();
 
-        console.log(`💬 [AI Chat] Trả lời cho session ${sessionId}: ${modelResponseText.substring(0, 50)}...`);
         res.status(200).json({ response: modelResponseText, sessionId: sessionId });
 
     } catch (error) {
@@ -373,4 +393,3 @@ module.exports = {
     getDailyReportByDate,
     handleChat
 };
-
